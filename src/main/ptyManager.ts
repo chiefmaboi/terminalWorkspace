@@ -1,9 +1,8 @@
 import * as pty from 'node-pty'
 import treeKill from 'tree-kill'
 import os from 'os'
-import { containsAttentionOsc } from './osc'
+import { OscStream } from './oscStream'
 import { buildPtyEnv } from './ptyEnv'
-import { scanCwdReports } from './cwdReport'
 import { foregroundCwd } from './processCwd'
 import type { PaneCwd } from '../shared/types'
 import type { StatusManager } from './statusManager'
@@ -70,8 +69,8 @@ interface Session {
   startCwd: string
   /** Last cwd the shell reported via OSC 7 / 9;9 / 633, if it reports at all. */
   reportedCwd: string | null
-  /** Unterminated OSC tail carried between chunks for cwd parsing. */
-  cwdCarry: string
+  /** Streaming OSC parser: attention notifications and cwd reports, split-chunk safe. */
+  osc: OscStream
 }
 
 export class PtyManager {
@@ -124,7 +123,7 @@ export class PtyManager {
       watchdog: null,
       startCwd: cwd,
       reportedCwd: null,
-      cwdCarry: ''
+      osc: new OscStream()
     }
     this.sessions.set(terminalId, session)
 
@@ -132,13 +131,11 @@ export class PtyManager {
       // A process that was stopped (restart/delete) can still emit trailing output after a new
       // session took over the same terminal id. Never let it bleed into the new session.
       if (!this.isCurrent(session)) return
-      // Status detection runs on raw chunks, before batching, so it reacts immediately.
-      if (containsAttentionOsc(data)) {
-        this.statusManager.markWaiting(terminalId)
+      // OSC parsing runs on raw chunks, before batching, so status reacts immediately.
+      for (const event of session.osc.feed(data)) {
+        if (event.kind === 'attention') this.statusManager.markWaiting(terminalId)
+        else session.reportedCwd = event.path
       }
-      const cwdScan = scanCwdReports(data, session.cwdCarry)
-      session.cwdCarry = cwdScan.carry
-      if (cwdScan.cwd) session.reportedCwd = cwdScan.cwd
       this.scheduleAutoIdle(session)
       this.enqueue(session, data)
     })

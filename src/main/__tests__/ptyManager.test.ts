@@ -219,6 +219,15 @@ describe('PtyManager', () => {
       expect(onData).toHaveBeenCalledTimes(1)
     })
 
+    it('detects an attention sequence split across two PTY chunks', () => {
+      const { pm, sm } = setup()
+      pm.start('t', '/p', '')
+      procs[0].emitData('output\x1b]777;notify;Claude;Needs ')
+      expect(sm.get('t')).toBe('idle')
+      procs[0].emitData('input\x07more')
+      expect(sm.get('t')).toBe('waiting')
+    })
+
     it('runs status detection on raw chunks before batching', () => {
       const { pm, sm, onData } = setup()
       pm.start('t', '/p', '')

@@ -7,7 +7,7 @@ import { promises as fs } from 'fs'
  * The foreground process is taken to be the shell's newest direct child (an agent such as
  * `claude`, which may have moved itself into a git worktree), or the shell itself when nothing
  * is running in it. Both platforms expose another process's cwd cheaply and without special
- * privileges. Windows has no such API (see cwdReport.ts for how its cwd is learned instead).
+ * privileges. Windows has no such API (see oscStream.ts: the shell reports its cwd instead).
  */
 export interface ProcessCwd {
   pid: number
