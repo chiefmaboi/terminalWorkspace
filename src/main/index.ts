@@ -10,8 +10,9 @@ import { PtyManager } from './ptyManager'
 import { StatusManager } from './statusManager'
 import { HookServer } from './hookServer'
 import { GitBranchPoller } from './git'
-import { stateForClaudeHook } from './hookEvents'
-import { IPC, HOOK_SERVER_PORT } from '../shared/types'
+import { PaneTokens } from './paneTokens'
+import { HookInstaller, RELAY_SCRIPT_NAME } from './hookInstaller'
+import { IPC } from '../shared/types'
 import type {
   CreateTerminalInput,
   CreateWorkspaceInput,
@@ -21,6 +22,10 @@ import type {
   ImportCommitResult,
   ImportPrepareResult,
   ImportPreviewEntry,
+  HookAction,
+  HookApplyResult,
+  HookPlan,
+  InstallableAgent,
   ListDirResult,
   PaneCwd,
   ReadFileResult,
@@ -90,12 +95,37 @@ function createTray(): void {
 
 const store = new Store()
 const statusManager = new StatusManager(() => store.getState().settings.idleDebounceMs)
+const paneTokens = new PaneTokens()
+
+// Agent hooks running inside a Pitwall terminal report here, identified by that terminal's token.
+const hookServer = new HookServer(paneTokens, (event) => {
+  mainWindow?.webContents.send(IPC.hookEventReceived, {
+    hookEventName: event.eventName,
+    receivedAt: Date.now()
+  })
+  if (event.cwd || event.sessionEnded) ptyManager.setAgentCwd(event.terminalId, event.sessionEnded ? null : event.cwd!)
+  if (event.state) {
+    statusManager.signal({ terminalId: event.terminalId, state: event.state, source: 'hook', message: event.message })
+  }
+})
+
+const hookInstaller = new HookInstaller({
+  relayScriptPath: join(app.getPath('userData'), 'hooks', RELAY_SCRIPT_NAME)
+})
+
 const ptyManager = new PtyManager(
   statusManager,
   (terminalId, data) => mainWindow?.webContents.send(IPC.ptyData, { id: terminalId, data }),
   (terminalId, exitCode) => {
     statusManager.signal({ terminalId, state: 'idle', source: 'exit' })
     mainWindow?.webContents.send(IPC.ptyExit, { id: terminalId, exitCode })
+  },
+  // Every spawn gets a fresh token (restarts invalidate the old one) and the hook server's URL;
+  // the installed relay reads these from the agent's inherited environment.
+  (terminalId): Record<string, string> => {
+    const url = hookServer.url()
+    if (!url) return { PITWALL_PANE_ID: terminalId }
+    return { PITWALL_PANE_ID: terminalId, PITWALL_TOKEN: paneTokens.issue(terminalId), PITWALL_HOOK_URL: url }
   }
 )
 
@@ -111,22 +141,7 @@ function findTerminal(terminalId: string): { workspace: Workspace; terminal: Ter
   return null
 }
 
-function samePath(a: string, b: string): boolean {
-  return join(a).toLowerCase() === join(b).toLowerCase()
-}
 
-const hookServer = new HookServer((payload) => {
-  mainWindow?.webContents.send(IPC.hookEventReceived, {
-    hookEventName: payload.hookEventName,
-    receivedAt: Date.now()
-  })
-
-  const terminal = allTerminals().find((t) => samePath(t.projectPath, payload.projectPath))
-  if (!terminal) return
-
-  const state = stateForClaudeHook(payload.hookEventName)
-  if (state) statusManager.signal({ terminalId: terminal.id, state, source: 'hook', message: payload.message })
-})
 const gitPoller = new GitBranchPoller(
   () => allTerminals().map((t) => ({ id: t.id, path: t.projectPath })),
   (terminalId, branch) => mainWindow?.webContents.send(IPC.gitBranchChanged, { id: terminalId, branch })
@@ -338,6 +353,7 @@ function registerIpcHandlers(): void {
       await Promise.all(workspace.terminals.map((t) => ptyManager.stop(t.id)))
       for (const t of workspace.terminals) {
         statusManager.remove(t.id)
+        paneTokens.revoke(t.id)
         unreadCounts.delete(t.id)
         gitPoller.forget(t.id)
       }
@@ -404,6 +420,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.terminalDelete, async (_event, terminalId: string) => {
     await ptyManager.stop(terminalId)
     statusManager.remove(terminalId)
+    paneTokens.revoke(terminalId)
     unreadCounts.delete(terminalId)
     gitPoller.forget(terminalId)
     const state = store.getState()
@@ -633,7 +650,28 @@ function registerIpcHandlers(): void {
     ptyManager.setPriority(typeof terminalId === 'string' ? terminalId : null)
   })
 
-  ipcMain.handle(IPC.hookServerInfo, () => ({ port: HOOK_SERVER_PORT }))
+  ipcMain.handle(IPC.hookServerInfo, () => ({ url: hookServer.url() }))
+
+  // Agent hook installation: status, a reviewable plan (diff), and apply-after-review.
+  const isAgent = (v: unknown): v is InstallableAgent => v === 'claude' || v === 'codex'
+  const isAction = (v: unknown): v is HookAction => v === 'install' || v === 'uninstall'
+  ipcMain.handle(IPC.hooksStatus, () => hookInstaller.status())
+  ipcMain.handle(IPC.hooksPlan, async (_event, agent: unknown, action: unknown): Promise<HookPlan | null> =>
+    isAgent(agent) && isAction(action) ? hookInstaller.plan(agent, action) : null
+  )
+  ipcMain.handle(
+    IPC.hooksApply,
+    async (_event, agent: unknown, action: unknown, beforeHash: unknown): Promise<HookApplyResult> => {
+      if (!isAgent(agent) || !isAction(action) || typeof beforeHash !== 'string') {
+        return { ok: false, error: 'Invalid request.' }
+      }
+      try {
+        return await hookInstaller.apply(agent, action, beforeHash)
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
 
   // The file drawer's root: the terminal's best-known cwd (see PtyManager.getCwd), or its
   // project folder when its PTY isn't running.
@@ -653,7 +691,7 @@ app.on('second-instance', () => {
   mainWindow.focus()
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Lost the single-instance lock: app.quit() is already underway, start nothing.
   if (!gotSingleInstanceLock) return
 
@@ -685,7 +723,8 @@ app.whenReady().then(() => {
   })
 
   registerIpcHandlers()
-  hookServer.start()
+  // Before any terminal spawns: terminals get the hook URL in their environment at spawn time.
+  await hookServer.start().catch((err) => console.error('[hookServer] not started:', err))
   gitPoller.start()
   createWindow()
   createTray()

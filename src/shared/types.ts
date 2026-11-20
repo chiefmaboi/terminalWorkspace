@@ -96,7 +96,44 @@ export type ReadFileResult =
   | { ok: true; content: string; truncated: boolean }
   | { ok: false; reason: 'binary' | 'error'; message?: string }
 
-export const HOOK_SERVER_PORT = 47823
+/** Agents whose hook config Pitwall can install its relay into. */
+export type InstallableAgent = 'claude' | 'codex'
+export type HookAction = 'install' | 'uninstall'
+
+export interface DiffLine {
+  kind: 'same' | 'add' | 'del'
+  text: string
+}
+
+export interface AgentHookStatus {
+  agent: InstallableAgent
+  label: string
+  configPath: string
+  state: 'installed' | 'outdated' | 'missing' | 'error'
+  error?: string
+}
+
+/** What installing / removing the hooks would change, for the user to review first. */
+export interface HookPlan {
+  agent: InstallableAgent
+  action: HookAction
+  configPath: string
+  existed: boolean
+  changed: boolean
+  /** The file's current formatting differs from 2-space JSON and will be normalized. */
+  reformatted: boolean
+  hadPitwall: boolean
+  diff: DiffLine[]
+  /** Identifies the reviewed file contents; apply refuses if the file changed since. */
+  beforeHash: string
+  error?: string
+}
+
+export interface HookApplyResult {
+  ok: boolean
+  backupPath?: string
+  error?: string
+}
 
 export const IPC = {
   workspacesGet: 'workspaces:get',
@@ -136,6 +173,9 @@ export const IPC = {
   gitBranchChanged: 'git:branchChanged',
 
   hookServerInfo: 'hooks:getServerInfo',
+  hooksStatus: 'hooks:status',
+  hooksPlan: 'hooks:plan',
+  hooksApply: 'hooks:apply',
   hookEventReceived: 'hooks:eventReceived',
   terminalFocusRequest: 'terminal:focusRequest',
 

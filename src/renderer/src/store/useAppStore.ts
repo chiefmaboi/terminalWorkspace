@@ -12,7 +12,7 @@ interface AppState {
   focusedTerminalId: string | null
   /** The tile shown full-size over the wall, or null for the grid view. */
   maximizedTerminalId: string | null
-  hookServerPort: number | null
+
   lastHookEventAt: number | null
   settingsModalOpen: boolean
 
@@ -41,7 +41,7 @@ interface AppState {
   setGitBranch: (id: string, branch: string | null) => void
   markPtyStarted: (id: string) => void  /** Toggle a tile's 2x2 pin (persisted on the terminal). */
   togglePinned: (terminalId: string) => void
-  setHookServerPort: (port: number) => void
+
   markHookEventReceived: (timestamp: number) => void
   updateAppSettings: (patch: Partial<AppSettings>) => void
   setSettingsModalOpen: (open: boolean) => void
@@ -67,18 +67,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   focusedTerminalId: null,
   maximizedTerminalId: null,
 
-  hookServerPort: null,
+
   lastHookEventAt: null,
   settingsModalOpen: false,
 
   load: async () => {
-    const [result, hookInfo] = await Promise.all([window.api.getWorkspaces(), window.api.getHookServerInfo()])
+    const result = await window.api.getWorkspaces()
     const sorted = [...result.workspaces].sort((a, b) => a.order - b.order)
     set({
       workspaces: sorted,
       runtime: result.runtime,
       settings: result.settings,
-      hookServerPort: hookInfo.port,
       loaded: true
     })
   },
@@ -296,7 +295,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }))
   },
 
-  setHookServerPort: (port) => set({ hookServerPort: port }),
 
   markHookEventReceived: (timestamp) => set({ lastHookEventAt: timestamp }),
 

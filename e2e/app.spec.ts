@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { execFileSync } from 'child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { launchApp, closeApp } from './helpers'
@@ -814,6 +814,181 @@ test.describe('grid wall', () => {
     await expect(slotOf('Beta')).toHaveClass(/tile-pinned/)
     await expect(slotOf('Gamma')).not.toHaveClass(/tile-pinned/)
     expect(await titles()).toEqual(order)
+  })
+})
+
+test.describe('agent hooks', () => {
+  let ctx: LaunchedApp
+  let base: string
+  let claudeDir: string
+  let codexDir: string
+  const isWin = process.platform === 'win32'
+  const userClaudeHook = { hooks: [{ type: 'command', command: 'echo users-own-claude-hook' }] }
+  const userCodexGroup = { hooks: [{ type: 'command', command: 'echo users-own-codex-hook' }] }
+
+  const tileOf = (window: Page, title: string) =>
+    window.locator('.tile').filter({ has: window.locator('.tile-title', { hasText: title }) })
+  /** PowerShell single-quoted literal (or POSIX single-quoted) of a string. */
+  const quote = (s: string): string => (isWin ? `'${s.replace(/'/g, "''")}'` : `'${s.replace(/'/g, "'\\''")}'`)
+  /** A command typed into a terminal that POSTs `body` to Pitwall as `agent`, using the
+   * terminal's own PITWALL_* variables (or an explicit bogus token). */
+  const postFromTerminal = (agent: string, body: object, token?: string): string => {
+    const json = quote(JSON.stringify(body))
+    if (isWin) {
+      const tok = token ?? '$env:PITWALL_TOKEN'
+      return `Invoke-RestMethod -Method Post -Uri "$env:PITWALL_HOOK_URL/${agent}" -Headers @{ Authorization = "Bearer ${tok}" } -ContentType 'application/json' -Body ${json}`
+    }
+    const tok = token ?? '$PITWALL_TOKEN'
+    return `curl -s -X POST -H "Authorization: Bearer ${tok}" -H 'Content-Type: application/json' --data ${json} "$PITWALL_HOOK_URL/${agent}"`
+  }
+  const run = async (window: Page, title: string, command: string): Promise<void> => {
+    await tileOf(window, title).locator('.tile-overlay').dispatchEvent('click')
+    await expect.poll(() => inTerminal(window)).toBe(true)
+    await window.keyboard.type(command)
+    await window.keyboard.press('Enter')
+  }
+
+  test.beforeAll(async () => {
+    base = mkdtempSync(join(tmpdir(), 'pitwall-hooks-e2e-'))
+    claudeDir = join(base, 'claude')
+    codexDir = join(base, 'codex')
+    mkdirSync(claudeDir)
+    mkdirSync(codexDir)
+    writeFileSync(
+      join(claudeDir, 'settings.json'),
+      JSON.stringify({ model: 'opus', hooks: { Stop: [userClaudeHook] } }, null, 2) + '\n'
+    )
+    writeFileSync(join(codexDir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [userCodexGroup] } }, null, 2) + '\n')
+    ctx = await launchApp({ CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexDir })
+    await createWorkspace(ctx.window, 'Hooks')
+    await addTerminal(ctx.window, 'Hooks', 'Left', 'echo left-ready')
+    await addTerminal(ctx.window, 'Hooks', 'Right', 'echo right-ready')
+    await expect(tileOf(ctx.window, 'Right').locator('.xterm-screen')).toContainText('right-ready', { timeout: 15_000 })
+  })
+
+  test.afterAll(async () => {
+    await closeApp(ctx)
+    rmSync(base, { recursive: true, force: true })
+  })
+
+  test('hook events reach the terminal that sent them (by token, not folder); bad tokens are refused', async () => {
+    const { window } = ctx
+    const left = tileOf(window, 'Left')
+    const right = tileOf(window, 'Right') // same folder as Left
+
+    await run(window, 'Left', isWin ? '"url=$env:PITWALL_HOOK_URL"' : 'echo "url=$PITWALL_HOOK_URL"')
+    await expect(left.locator('.xterm-screen')).toContainText(/url=http:\/\/127\.0\.0\.1:\d+\/hook/)
+    await expect(left.locator('.xterm-screen')).not.toContainText(':47823')
+
+    await run(window, 'Left', postFromTerminal('claude', { hook_event_name: 'Notification', message: 'approve edit?' }))
+    await expect(left).toHaveAttribute('data-status', 'waiting', { timeout: 10_000 })
+    await expect(right).not.toHaveAttribute('data-status', 'waiting')
+
+    await run(window, 'Right', postFromTerminal('claude', { hook_event_name: 'Notification' }, '0'.repeat(64)))
+    await window.waitForTimeout(1500)
+    await expect(right).not.toHaveAttribute('data-status', 'waiting')
+
+    // Stop from Left: idle again.
+    await run(window, 'Left', postFromTerminal('claude', { hook_event_name: 'Stop' }))
+    await expect(left).toHaveAttribute('data-status', 'idle', { timeout: 10_000 })
+  })
+
+  test("an agent's hook cwd (a worktree) re-roots the file drawer until the shell is back", async () => {
+    const { window } = ctx
+    const worktree = mkdtempSync(join(tmpdir(), 'pitwall-agent-wt-'))
+    writeFileSync(join(worktree, 'agent-side.txt'), 'x')
+    const drawer = window.locator('.file-drawer')
+    try {
+      // Stand in for a foreground agent: report from inside the terminal, then keep it busy
+      // (no shell prompt) the way a running agent does.
+      const sleep = isWin ? 'Start-Sleep -Seconds 60' : 'sleep 60'
+      await run(window, 'Left', `${postFromTerminal('claude', { hook_event_name: 'SessionStart', cwd: worktree })}; ${sleep}`)
+      await window.waitForTimeout(1500)
+      await window.keyboard.press('Control+Shift+E')
+      await expect(drawer.locator('.file-drawer-path')).toHaveText(worktree)
+      await expect(drawer.locator('.file-drawer-source')).toHaveText('agent cwd')
+      await expect(drawer.locator('.file-tree')).toContainText('agent-side.txt')
+      await window.keyboard.press('Control+Shift+E')
+
+      // The "agent" exits: the shell's next prompt reports its own cwd, which wins again.
+      await window.keyboard.press('Control+C')
+      await window.waitForTimeout(1500)
+      await window.keyboard.press('Control+Shift+E')
+      await expect(drawer.locator('.file-drawer-path')).toHaveText(tmpdir())
+      await expect(drawer.locator('.file-drawer-source')).not.toHaveText('agent cwd')
+      await window.keyboard.press('Control+Shift+E')
+    } finally {
+      rmSync(worktree, { recursive: true, force: true })
+    }
+  })
+
+  const openHooksSettings = async (window: Page): Promise<void> => {
+    await window.locator('button[title="Settings"]').click()
+    await expect(window.locator('.agent-hook-row')).toHaveCount(2)
+  }
+  const closeSettings = (window: Page): Promise<void> =>
+    window.locator('.settings-modal .modal-actions button.primary', { hasText: 'Done' }).click()
+
+  for (const agent of ['claude', 'codex'] as const) {
+    test(`installing ${agent} hooks: review the diff, apply, idempotent, then remove`, async () => {
+      const { window } = ctx
+      const configPath = agent === 'claude' ? join(claudeDir, 'settings.json') : join(codexDir, 'hooks.json')
+      const userGroup = agent === 'claude' ? userClaudeHook : userCodexGroup
+      const row = window.locator(`.agent-hook-row[data-agent="${agent}"]`)
+      await openHooksSettings(window)
+      await expect(row).toHaveAttribute('data-state', 'missing')
+
+      await row.locator('button', { hasText: 'Install' }).click()
+      const review = window.locator('.hook-review')
+      await expect(review.locator('.hook-review-path')).toContainText(configPath)
+      await expect(review.locator('.diff-add').first()).toBeVisible()
+      expect(await review.locator('.diff-add').allTextContents()).toEqual(
+        expect.arrayContaining([expect.stringContaining('PITWALL_TOKEN')])
+      )
+      await expect(review.locator('.diff-del')).toHaveCount(0) // installing only adds
+      await review.locator('.modal-actions button.primary', { hasText: 'Install' }).click()
+      await expect(row).toHaveAttribute('data-state', 'installed')
+
+      const installed = JSON.parse(readFileSync(configPath, 'utf-8'))
+      expect(installed.hooks.Stop[0]).toEqual(userGroup) // the user's hook keeps its position
+      expect(JSON.stringify(installed.hooks.Stop[1])).toContain('PITWALL_TOKEN')
+      if (agent === 'claude') expect(installed.model).toBe('opus')
+      if (agent === 'codex') {
+        expect(readFileSync(join(ctx.userDataDir, 'hooks', 'pitwall-hook.ps1'), 'utf-8')).toContain('PITWALL_TOKEN')
+      }
+      expect(readdirSync(agent === 'claude' ? claudeDir : codexDir).some((f) => f.includes('pitwall-backup'))).toBe(true)
+
+      // Remove: back to exactly the user's own config.
+      await row.locator('button', { hasText: 'Remove' }).click()
+      await expect(review.locator('.diff-del').first()).toBeVisible()
+      await review.locator('.modal-actions button.danger', { hasText: 'Remove' }).click()
+      await expect(row).toHaveAttribute('data-state', 'missing')
+      const removed = JSON.parse(readFileSync(configPath, 'utf-8'))
+      expect(removed.hooks).toEqual({ Stop: [userGroup] })
+
+      // Leave it installed for the next test.
+      await row.locator('button', { hasText: 'Install' }).click()
+      await review.locator('.modal-actions button.primary', { hasText: 'Install' }).click()
+      await expect(row).toHaveAttribute('data-state', 'installed')
+      await closeSettings(window)
+    })
+  }
+
+  test("the installed Codex relay, run inside a Pitwall terminal, reports to that terminal", async () => {
+    test.skip(!isWin, 'the PowerShell relay is the Windows path; macOS/Linux use the curl relay')
+    const { window } = ctx
+    const script = join(ctx.userDataDir, 'hooks', 'pitwall-hook.ps1')
+    const payload = {
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm publish' }
+    }
+    await run(
+      window,
+      'Right',
+      `${quote(JSON.stringify(payload))} | powershell -NoProfile -ExecutionPolicy Bypass -File "${script}" codex`
+    )
+    await expect(tileOf(window, 'Right')).toHaveAttribute('data-status', 'waiting', { timeout: 20_000 })
   })
 })
 

@@ -1,7 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types'
 import type {
+  AgentHookStatus,
   AppSettings,
+  HookAction,
+  HookApplyResult,
+  HookPlan,
+  InstallableAgent,
   CreateTerminalInput,
   CreateWorkspaceInput,
   ExportResult,
@@ -50,7 +55,12 @@ const api = {
   updateSettings: (patch: Partial<AppSettings>): Promise<void> =>
     ipcRenderer.invoke(IPC.settingsUpdate, patch),
 
-  getHookServerInfo: (): Promise<{ port: number }> => ipcRenderer.invoke(IPC.hookServerInfo),
+  getHookServerInfo: (): Promise<{ url: string | null }> => ipcRenderer.invoke(IPC.hookServerInfo),
+  hookStatus: (): Promise<AgentHookStatus[]> => ipcRenderer.invoke(IPC.hooksStatus),
+  planHooks: (agent: InstallableAgent, action: HookAction): Promise<HookPlan | null> =>
+    ipcRenderer.invoke(IPC.hooksPlan, agent, action),
+  applyHooks: (agent: InstallableAgent, action: HookAction, beforeHash: string): Promise<HookApplyResult> =>
+    ipcRenderer.invoke(IPC.hooksApply, agent, action, beforeHash),
 
   listDir: (path: string): Promise<ListDirResult> => ipcRenderer.invoke(IPC.fsListDir, path),
   readFile: (path: string): Promise<ReadFileResult> => ipcRenderer.invoke(IPC.fsReadFile, path),

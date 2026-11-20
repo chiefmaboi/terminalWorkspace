@@ -75,7 +75,7 @@ test.describe('real sessions under load', () => {
     mkdirSync(OUT, { recursive: true })
     const claudeDir = mkdtempSync(join(tmpdir(), 'pitwall-real-'))
     copyFileSync(join(REPO, 'package.json'), join(claudeDir, 'package.json'))
-    const ctx = await launchApp()
+    const ctx = await launchApp({}, { isolateAgentConfig: false })
     const { app, window } = ctx
     const warnings: string[] = []
     app.process().stdout?.on('data', (d) => {

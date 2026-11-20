@@ -581,34 +581,6 @@ button {
   font-size: 12px;
 }
 
-.hook-modal {
-  width: 560px;
-}
-
-.hook-modal p code {
-  font-family: var(--mono-font);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 12px;
-}
-
-.hook-snippet {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-family: var(--mono-font);
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: var(--text-dim);
-  max-height: 220px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .shortcuts-table {
   width: 100%;
   border-collapse: collapse;
@@ -1509,4 +1481,96 @@ button {
   user-select: none;
   -webkit-user-select: none;
   -webkit-user-drag: none;
+}
+
+/* ── Agent hooks (Settings) ───────────────────────────────────────────────────────────── */
+
+.agent-hook-row {
+  display: grid;
+  grid-template-columns: 96px 110px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-hook-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.agent-hook-state {
+  font-family: var(--mono-font);
+  font-size: 11px;
+}
+
+.agent-hook-state.state-installed {
+  color: var(--status-working);
+}
+
+.agent-hook-state.state-outdated {
+  color: var(--status-waiting);
+}
+
+.agent-hook-state.state-missing {
+  color: var(--text-dim);
+}
+
+.agent-hook-state.state-error {
+  color: var(--danger);
+}
+
+.agent-hook-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.modal.hook-review {
+  width: min(760px, calc(100vw - 80px));
+}
+
+.hook-review-path code {
+  word-break: break-all;
+}
+
+.hook-diff {
+  max-height: 46vh;
+  overflow: auto;
+  margin: 8px 0;
+  padding: 8px 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.hook-diff > div {
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.hook-diff .diff-add {
+  background: color-mix(in srgb, var(--status-working) 16%, transparent);
+  color: var(--text);
+}
+
+.hook-diff .diff-del {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--text);
+}
+
+.hook-diff .diff-same {
+  color: var(--text-dim);
+}
+
+.hook-diff .diff-gap {
+  color: var(--text-dim);
+  font-style: italic;
 }

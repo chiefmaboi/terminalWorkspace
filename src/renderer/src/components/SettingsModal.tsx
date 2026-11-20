@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AppTheme, ImportPreviewEntry, RestorableSettings } from '../../../shared/types'
 import { useAppStore } from '../store/useAppStore'
 import ImportPreviewModal from './ImportPreviewModal'
-import HookInfoModal from './HookInfoModal'
+import AgentHooks from './AgentHooks'
 
 interface Props {
   onClose: () => void
@@ -20,14 +20,12 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const updateAppSettings = useAppStore((s) => s.updateAppSettings)
   const reloadWorkspaces = useAppStore((s) => s.reloadWorkspaces)
-  const hookServerPort = useAppStore((s) => s.hookServerPort)
   const lastHookEventAt = useAppStore((s) => s.lastHookEventAt)
 
   const [defaultStartCommand, setDefaultStartCommand] = useState(settings.defaultStartCommand)
   const [idleSeconds, setIdleSeconds] = useState(Math.round(settings.idleDebounceMs / 1000))
   const [version, setVersion] = useState<string | null>(null)
   const [dataMessage, setDataMessage] = useState<string | null>(null)
-  const [hookInfoOpen, setHookInfoOpen] = useState(false)
 
   const hooksConnected = lastHookEventAt !== null && Date.now() - lastHookEventAt < 10 * 60_000
   const [importPreview, setImportPreview] = useState<{
@@ -144,14 +142,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
           />
         </label>
 
-        <div className="settings-updates">
-          <div className="settings-updates-row">
-            <span className="settings-version">
-              {hooksConnected ? 'Hooks connected' : `Hooks · port ${hookServerPort ?? '…'}`}
-            </span>
-            <button onClick={() => setHookInfoOpen(true)}>Setup…</button>
-          </div>
-        </div>
+        <AgentHooks connected={hooksConnected} />
 
         <div className="settings-updates">
           <div className="settings-updates-row">
@@ -186,9 +177,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
         onClose={() => setImportPreview(null)}
       />
     )}
-    {hookInfoOpen && (
-      <HookInfoModal port={hookServerPort} connected={hooksConnected} onClose={() => setHookInfoOpen(false)} />
-    )}
+
     </>
   )
 }

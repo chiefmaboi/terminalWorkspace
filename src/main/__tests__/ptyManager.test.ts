@@ -116,6 +116,35 @@ describe('PtyManager', () => {
     expect(sm.get('t')).toBe('idle')
   })
 
+  it("injects each terminal's own PITWALL_* variables after filtering inherited ones", async () => {
+    const { spawn } = await import('node-pty')
+    process.env.PITWALL_TOKEN = 'inherited-from-a-parent-pitwall'
+    try {
+      const pm = new PtyManager(new StatusManager(), vi.fn(), vi.fn(), (id) => ({
+        PITWALL_PANE_ID: id,
+        PITWALL_TOKEN: `token-for-${id}`,
+        PITWALL_HOOK_URL: 'http://127.0.0.1:1234/hook'
+      }))
+      pm.start('t', '/p', '')
+      const env = (vi.mocked(spawn).mock.calls.at(-1)?.[2] as { env: Record<string, string> }).env
+      expect(env.PITWALL_TOKEN).toBe('token-for-t')
+      expect(env.PITWALL_PANE_ID).toBe('t')
+      expect(env.PITWALL_HOOK_URL).toBe('http://127.0.0.1:1234/hook')
+    } finally {
+      delete process.env.PITWALL_TOKEN
+    }
+  })
+
+  it("prefers the agent's hook-reported cwd until the shell is back at a prompt", async () => {
+    const { pm } = setup()
+    pm.start('t', 'C:\\start', '')
+    pm.setAgentCwd('t', 'C:\\repo\\.worktrees\\feat')
+    expect(await pm.getCwd('t')).toEqual({ cwd: 'C:\\repo\\.worktrees\\feat', source: 'agent' })
+    // The agent exited and the shell's prompt reported its own cwd: that wins again.
+    procs[0].emitData('\x1b]9;9;"C:\\repo"\x1b\\PS> ')
+    expect(await pm.getCwd('t')).toEqual({ cwd: 'C:\\repo', source: 'reported' })
+  })
+
   it('tracks the cwd a shell reports, falling back to where it started', async () => {
     const { pm } = setup()
     pm.start('t', 'C:\\start', '')

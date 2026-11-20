@@ -68,6 +68,8 @@ interface Session {
   startCwd: string
   /** Last cwd the shell reported via OSC 7 / 9;9 / 633, if it reports at all. */
   reportedCwd: string | null
+  /** The agent's cwd from its hook events (e.g. a worktree it moved into), while it runs. */
+  agentCwd: string | null
   /** Streaming OSC parser: attention notifications and cwd reports, split-chunk safe. */
   osc: OscStream
 }
@@ -83,7 +85,9 @@ export class PtyManager {
   constructor(
     private statusManager: StatusManager,
     private onData: (terminalId: string, data: string) => void,
-    private onExit: (terminalId: string, exitCode: number) => void
+    private onExit: (terminalId: string, exitCode: number) => void,
+    /** Extra per-terminal variables (PITWALL_PANE_ID / PITWALL_TOKEN / PITWALL_HOOK_URL). */
+    private paneEnv: (terminalId: string) => Record<string, string> = () => ({})
   ) {}
 
   has(terminalId: string): boolean {
@@ -106,8 +110,9 @@ export class PtyManager {
       cols,
       rows,
       cwd,
-      // Inherited env minus launcher/Pitwall-internal markers (see ptyEnv.ts).
-      env: buildPtyEnv(process.env),
+      // Inherited env minus launcher/Pitwall-internal markers (see ptyEnv.ts), then this
+      // terminal's own PITWALL_* variables, added after filtering so they can't be inherited.
+      env: { ...buildPtyEnv(process.env), ...this.paneEnv(terminalId) },
       useConpty: process.platform === 'win32'
     })
 
@@ -122,6 +127,7 @@ export class PtyManager {
       watchdog: null,
       startCwd: cwd,
       reportedCwd: null,
+      agentCwd: null,
       osc: new OscStream()
     }
     this.sessions.set(terminalId, session)
@@ -139,6 +145,9 @@ export class PtyManager {
           this.statusManager.signal({ terminalId, state: 'waiting', source: 'osc', message: event.message })
         } else {
           session.reportedCwd = event.path
+          // A prompt's cwd report means the shell is back in the foreground: any agent that
+          // was running in this terminal has exited, so its cwd no longer applies.
+          session.agentCwd = null
         }
       }
       this.enqueue(session, data)
@@ -173,8 +182,15 @@ export class PtyManager {
       const fromOs = await foregroundCwd(session.proc.pid).catch(() => null)
       if (fromOs) return { cwd: fromOs.cwd, source: fromOs.pid === session.proc.pid ? 'shell' : 'agent' }
     }
+    if (session.agentCwd) return { cwd: session.agentCwd, source: 'agent' }
     if (session.reportedCwd) return { cwd: session.reportedCwd, source: 'reported' }
     return { cwd: session.startCwd, source: 'start' }
+  }
+
+  /** The agent running in this terminal reported its cwd through a hook (null: it ended). */
+  setAgentCwd(terminalId: string, cwd: string | null): void {
+    const session = this.sessions.get(terminalId)
+    if (session) session.agentCwd = cwd
   }
 
   /** The terminal whose output should flush at the fast rate (selected / maximized), or null. */

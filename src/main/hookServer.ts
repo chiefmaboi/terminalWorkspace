@@ -1,82 +1,105 @@
 import http from 'http'
-import { HOOK_SERVER_PORT } from '../shared/types'
-import type { HookEventPayload } from '../shared/types'
+import type { AddressInfo } from 'net'
+import { HOOK_AGENTS, readHook } from './hookEvents'
+import type { HookAgent, HookReading } from './hookEvents'
+import type { PaneTokens } from './paneTokens'
 
-type HookHandler = (payload: HookEventPayload) => void
+export interface HookEvent extends HookReading {
+  terminalId: string
+  agent: HookAgent
+}
+
+const MAX_BODY_BYTES = 1_000_000
 
 /**
- * Small localhost-only HTTP server that Claude Code hooks POST to. This is the second of the
- * two parallel status-detection paths (the other being OSC escape sequence parsing on the PTY
- * stream). The app ships ready-to-paste hook config (see README) that points at this port.
+ * Localhost-only HTTP endpoint that agent hooks report to: POST /hook/<agent> with
+ * `Authorization: Bearer <PITWALL_TOKEN>` and the agent's hook JSON as the body.
+ *
+ * - Binds 127.0.0.1 on an OS-assigned port (no fixed port to collide with another app or a
+ *   second copy); terminals learn the URL from PITWALL_HOOK_URL in their environment.
+ * - The bearer token identifies the terminal (see PaneTokens). Unknown or revoked tokens get
+ *   401, so only processes running inside a live Pitwall terminal can report.
+ * - Requests carrying an Origin header are refused: hooks are curl/PowerShell processes, which
+ *   never send one, while a web page's request always does (blocks drive-by CSRF from a browser).
+ * - Answers 204 with no body: the relay forwards nothing back into the agent (Claude Code and
+ *   Codex add some hooks' stdout to the model's context).
  */
 export class HookServer {
   private server: http.Server | null = null
+  private port: number | null = null
 
-  constructor(private onEvent: HookHandler) {}
+  constructor(
+    private tokens: PaneTokens,
+    private onEvent: (event: HookEvent) => void
+  ) {}
 
-  start(): number {
-    this.server = http.createServer((req, res) => {
-      if (req.method !== 'POST') {
-        res.writeHead(405).end()
-        return
-      }
-
-      // Reject anything sent with an Origin header. Legitimate hook calls come from a
-      // PowerShell/curl-style script and never set one; only browsers do, on both
-      // cross-origin AND same-origin requests — so this blocks a malicious webpage from
-      // silently POSTing here (CSRF) without needing a shared secret or breaking the
-      // documented hook setup.
-      if (req.headers.origin) {
-        res.writeHead(403).end()
-        return
-      }
-
-      let body = ''
-      req.on('data', (chunk) => {
-        body += chunk
-        if (body.length > 1_000_000) req.destroy()
-      })
-      req.on('end', () => {
-        try {
-          // Claude Code's hook stdin JSON is forwarded here verbatim (see README) rather than
-          // remapped by the hook command itself — that used to require inline PowerShell
-          // variables, which Claude Code's Git-Bash-based hook runner silently mangles on
-          // Windows (`$json`/`$body` get bash-expanded to empty before PowerShell ever sees
-          // them). Reading Claude Code's own field names here means the hook command can be a
-          // plain, variable-free `curl` one-liner instead.
-          const raw = JSON.parse(body) as Record<string, unknown>
-          const hookEventName = raw.hook_event_name ?? raw.hookEventName
-          const projectPath = raw.cwd ?? raw.projectPath
-          if (typeof hookEventName === 'string' && typeof projectPath === 'string') {
-            const payload: HookEventPayload = {
-              hookEventName,
-              projectPath,
-              message: typeof raw.message === 'string' ? raw.message : undefined
-            }
-            this.onEvent(payload)
-          }
-          res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true }))
-        } catch {
-          res.writeHead(400).end(JSON.stringify({ ok: false, error: 'invalid payload' }))
-        }
+  /** Start listening; resolves with the assigned port. */
+  start(): Promise<number> {
+    const server = http.createServer((req, res) => this.handle(req, res))
+    this.server = server
+    return new Promise((resolve, reject) => {
+      const onError = (err: Error): void => reject(err)
+      server.once('error', onError)
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', onError)
+        // Later errors must not crash the main process (an EventEmitter 'error' without a
+        // listener throws); they only cost hook-based status detection.
+        server.on('error', (err) => console.error('[hookServer]', err.message))
+        this.port = (server.address() as AddressInfo).port
+        resolve(this.port)
       })
     })
+  }
 
-    // A Node EventEmitter throws (crashing the whole Electron main process) if 'error' fires
-    // with no listener attached — without this, anything already using the port (another
-    // Pitwall instance, a leftover process, or plain bad luck) would take the entire app down
-    // instead of just leaving hook-based status detection unavailable for this session.
-    this.server.on('error', (err) => {
-      console.error(`[hookServer] failed to listen on 127.0.0.1:${HOOK_SERVER_PORT}:`, err.message)
-    })
-
-    // Bind to loopback only; these events never need to leave the machine.
-    this.server.listen(HOOK_SERVER_PORT, '127.0.0.1')
-    return HOOK_SERVER_PORT
+  /** Base URL for PITWALL_HOOK_URL, or null before start(). */
+  url(): string | null {
+    return this.port === null ? null : `http://127.0.0.1:${this.port}/hook`
   }
 
   stop(): void {
     this.server?.close()
     this.server = null
+    this.port = null
+  }
+
+  private handle(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const reply = (code: number): void => {
+      res.writeHead(code).end()
+    }
+    if (req.method !== 'POST') return reply(405)
+    if (req.headers.origin) return reply(403)
+
+    const match = /^\/hook\/([a-z]+)\/?$/.exec((req.url ?? '').split('?')[0])
+    const agent = match?.[1] as HookAgent | undefined
+    if (!agent || !HOOK_AGENTS.includes(agent)) return reply(404)
+
+    const auth = req.headers.authorization ?? ''
+    const terminalId = this.tokens.resolve(auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : null)
+    if (!terminalId) return reply(401)
+
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > MAX_BODY_BYTES) {
+        reply(413)
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      if (res.writableEnded) return
+      let payload: unknown
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString('utf-8'))
+      } catch {
+        return reply(400)
+      }
+      const reading = readHook(agent, payload)
+      if (!reading) return reply(400)
+      reply(204)
+      this.onEvent({ ...reading, terminalId, agent })
+    })
   }
 }
