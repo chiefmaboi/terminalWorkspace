@@ -2,7 +2,6 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import type { AppTheme } from '../../../shared/types'
 import { xtermThemeFor } from './themes'
@@ -19,7 +18,6 @@ export const SCROLLBACK_LINES = 5000
 const PREVIEW_DEBOUNCE_MS = 500
 const PREVIEW_MAX_LENGTH = 160
 
-export type RendererKind = 'dom' | 'webgl'
 
 interface TerminalEntry {
   id: string
@@ -32,7 +30,6 @@ interface TerminalEntry {
   exited: boolean
   lastCols: number
   lastRows: number
-  webgl: WebglAddon | null
   previewTimer: ReturnType<typeof setTimeout> | null
   /** Optional per-terminal key hook (e.g. Ctrl+F search while maximized). true = handled. */
   keyHook: ((event: KeyboardEvent) => boolean) | null
@@ -95,7 +92,6 @@ function create(id: string): TerminalEntry {
 
   const host = document.createElement('div')
   host.className = 'terminal-host'
-  host.dataset.renderer = 'dom'
 
   const entry: TerminalEntry = {
     id,
@@ -107,7 +103,6 @@ function create(id: string): TerminalEntry {
     exited: false,
     lastCols: 0,
     lastRows: 0,
-    webgl: null,
     previewTimer: null,
     keyHook: null
   }
@@ -176,7 +171,6 @@ export function dispose(ids: string[]): void {
     const entry = entries.get(id)
     if (!entry) continue
     if (entry.previewTimer) clearTimeout(entry.previewTimer)
-    entry.webgl?.dispose()
     entry.term.dispose()
     entry.host.remove()
     entries.delete(id)
@@ -222,38 +216,18 @@ export function ensureStarted(id: string): void {
   void window.api.ptyStart(id, cols, rows).then(() => callbacks?.onStarted(id))
 }
 
-/** WebGL only for the maximized terminal; every tile uses xterm's DOM renderer. */
-export function setRenderer(id: string, kind: RendererKind): void {
+/**
+ * Give terminal `id` keyboard focus without scrolling the wall: focusing an element normally
+ * scrolls every scrollable ancestor to reveal it, which would yank a partly visible tile into
+ * view on click. xterm's own focus() happens to do the same today; doing it here explicitly
+ * keeps the guarantee independent of xterm internals.
+ */
+export function focus(id: string): void {
   const entry = entries.get(id)
   if (!entry) return
-  if (kind === 'webgl' && !entry.webgl) {
-    try {
-      const addon = new WebglAddon()
-      addon.onContextLoss(() => {
-        // GPU reset or context eviction: drop back to the DOM renderer rather than go blank.
-        addon.dispose()
-        if (entry.webgl === addon) {
-          entry.webgl = null
-          entry.host.dataset.renderer = 'dom'
-        }
-      })
-      entry.term.loadAddon(addon)
-      entry.webgl = addon
-      entry.host.dataset.renderer = 'webgl'
-    } catch (err) {
-      console.warn(`[terminal] WebGL unavailable, staying on the DOM renderer: ${String(err)}`)
-      entry.webgl = null
-      entry.host.dataset.renderer = 'dom'
-    }
-  } else if (kind === 'dom' && entry.webgl) {
-    entry.webgl.dispose()
-    entry.webgl = null
-    entry.host.dataset.renderer = 'dom'
-  }
-}
-
-export function focus(id: string): void {
-  entries.get(id)?.term.focus()
+  const textarea = entry.term.textarea
+  if (textarea) textarea.focus({ preventScroll: true })
+  else entry.term.focus()
 }
 
 export function setKeyHook(id: string, hook: ((event: KeyboardEvent) => boolean) | null): void {

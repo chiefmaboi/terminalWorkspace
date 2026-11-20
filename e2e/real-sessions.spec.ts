@@ -237,15 +237,14 @@ test.describe('real sessions under load', () => {
         const hostWidth = (): Promise<number> =>
           t.locator('.terminal-host').evaluate((el) => (el as HTMLElement).clientWidth)
         if (round === 3) {
-          fill.domScreenPx = await screenWidth()
+          fill.tileScreenPx = await screenWidth()
           fill.hostPx = await hostWidth()
         }
         await t.locator('.tile-overlay').dblclick()
         await expect(t).toHaveClass(/tile-maximized/)
         if (round === 3) {
-          await expect(t.locator('.terminal-host')).toHaveAttribute('data-renderer', 'webgl')
           await window.waitForTimeout(300)
-          fill.webglScreenPx = await screenWidth()
+          fill.maximizedScreenPx = await screenWidth()
           fill.devicePixelRatio = await window.evaluate(() => window.devicePixelRatio)
           await window.screenshot({ path: join(OUT, 'maximized.png') })
         }
@@ -319,7 +318,7 @@ test.describe('real sessions under load', () => {
         renderer: pct(byType('Tab'), 50)
       },
       memoryMB: cpuSamples.at(-1)?.reduce((acc, m) => ({ ...acc, [m.type]: (acc[m.type] ?? 0) + m.memMB }), {} as Record<string, number>),
-      // Same cols in both renderers; how much of the host width each one actually fills.
+      // Same cols tiled and maximized; how much of the host width the terminal actually fills.
       maximizedFill: fill,
       flowControlWarnings: warnings,
       claudeScreens: screens

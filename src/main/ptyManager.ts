@@ -2,6 +2,7 @@ import * as pty from 'node-pty'
 import treeKill from 'tree-kill'
 import os from 'os'
 import { containsAttentionOsc } from './osc'
+import { buildPtyEnv } from './ptyEnv'
 import type { StatusManager } from './statusManager'
 
 const DEFAULT_SHELL = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL ?? 'bash')
@@ -76,7 +77,8 @@ export class PtyManager {
       cols,
       rows,
       cwd,
-      env: { ...process.env } as Record<string, string>,
+      // Inherited env minus launcher/Pitwall-internal markers (see ptyEnv.ts).
+      env: buildPtyEnv(process.env),
       useConpty: process.platform === 'win32'
     })
 

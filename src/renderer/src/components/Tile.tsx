@@ -53,10 +53,8 @@ export default function Tile({ terminal, selected, maximized }: Props): React.JS
     }
   }, [id])
 
-  // WebGL only while maximized; tiles stay on the DOM renderer (browsers cap live WebGL
-  // contexts at ~16, and a scaled-down tile gains nothing from the GPU path).
+  // Maximizing hands the terminal keyboard focus; restoring closes its search bar.
   useEffect(() => {
-    terminals.setRenderer(id, maximized ? 'webgl' : 'dom')
     if (maximized) requestAnimationFrame(() => terminals.focus(id))
     else setSearchOpen(false)
   }, [id, maximized])

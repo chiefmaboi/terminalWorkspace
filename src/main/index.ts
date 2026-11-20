@@ -244,7 +244,9 @@ function createWindow(): void {
   // 'did-start-loading' also fires for the initial load, where the reset is a harmless no-op.
   mainWindow.webContents.on('did-start-loading', () => ptyManager.resetFlowControl('renderer reload'))
   mainWindow.on('unresponsive', () => ptyManager.resetFlowControl('renderer unresponsive'))
-  if (is.dev) {
+  // Opt-in only: a detached DevTools window on every dev launch gets in the way (and used to
+  // be picked up by E2E tests as the "first window").
+  if (process.env.PITWALL_DEVTOOLS === '1') {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 

@@ -193,7 +193,7 @@ test.describe('grid wall', () => {
     await expect(tileOf(window, 'Alpha').locator('.xterm-screen')).not.toContainText('typed-into-beta')
   })
 
-  test('double click maximizes on WebGL without resizing the pty; Ctrl+Shift+Enter restores to DOM', async () => {
+  test('double click maximizes without resizing the pty and fills the width; Ctrl+Shift+Enter restores', async () => {
     const { window } = ctx
     const alpha = tileOf(window, 'Alpha')
     const resizesBefore = await ptyResizeCount()
@@ -201,13 +201,15 @@ test.describe('grid wall', () => {
     await alpha.locator('.tile-overlay').dblclick()
     await expect(alpha).toHaveClass(/tile-maximized/)
     await expect(window.locator('.wall-viewport')).toHaveClass(/has-maximized/)
-    await expect(alpha.locator('.terminal-host')).toHaveAttribute('data-renderer', 'webgl')
-    await expect(tileOf(window, 'Beta').locator('.terminal-host')).toHaveAttribute('data-renderer', 'dom')
+    // Tiles and the maximized view share one renderer (DOM) and one geometry, so the maximized
+    // terminal fills its host instead of leaving a strip (the old WebGL cell-width mismatch).
+    const screenPx = await alpha.locator('.xterm-screen').evaluate((el) => (el as HTMLElement).offsetWidth)
+    const hostPx = await alpha.locator('.terminal-host').evaluate((el) => (el as HTMLElement).clientWidth)
+    expect(screenPx / hostPx).toBeGreaterThan(0.95)
 
     // The terminal has focus; the chord must still work from inside it.
     await window.keyboard.press('Control+Shift+Enter')
     await expect(window.locator('.tile-maximized')).toHaveCount(0)
-    await expect(alpha.locator('.terminal-host')).toHaveAttribute('data-renderer', 'dom')
 
     // Same shared geometry in both modes: maximize/restore never resizes a pty (so the agent's
     // TUI never reflows). Wait out the resize debounce before counting.
@@ -263,6 +265,41 @@ test.describe('grid wall', () => {
     expect(await ptyResizeCount()).toBe(before + 6)
   })
 
+  test('click-to-focus on a partly visible tile never scrolls the wall', async () => {
+    const { window } = ctx
+    const scroller = window.locator('.wall-scroll')
+    const gamma = tileOf(window, 'Gamma')
+    // Push Gamma's cursor (and with it xterm's hidden input textarea) to its last row, like an
+    // agent's input box: that is the part of a partly visible tile that sits below the fold.
+    await gamma.locator('.tile-overlay').click()
+    await window.keyboard.type(process.platform === 'win32' ? '1..120 | % { "fill-$_" }' : 'seq 1 120 | sed "s/^/fill-/"')
+    await window.keyboard.press('Enter')
+    await expect(gamma.locator('.xterm-screen')).toContainText('fill-120')
+    await tileOf(window, 'Alpha').locator('.tile-overlay').click()
+
+    // 0.5 with three tiles: 2 columns, and the second row runs past the bottom of the wall.
+    await window.locator('.wall-scale select').selectOption('0.5')
+    await expect(window.locator('.wall-grid')).toHaveAttribute('data-cols', '2')
+    await scroller.evaluate((el) => (el.scrollTop = 0))
+    // Gamma's textarea really is out of view, so a plain focus() would have to scroll.
+    const textareaBelowFold = await window.evaluate(() => {
+      const scroll = document.querySelector('.wall-scroll') as HTMLElement
+      const tile = [...document.querySelectorAll('.tile')].find((t) => t.textContent?.includes('Gamma'))
+      const textarea = tile?.querySelector('.xterm-helper-textarea') as HTMLElement
+      return textarea.getBoundingClientRect().top > scroll.getBoundingClientRect().bottom
+    })
+    expect(textareaBelowFold).toBe(true)
+
+    // dispatchEvent, not click(): Playwright's click() scrolls its target into view itself.
+    await gamma.locator('.tile-overlay').dispatchEvent('click')
+    await expect(gamma).toHaveClass(/tile-selected/)
+    await expect.poll(() => window.evaluate(() => !!document.activeElement?.closest('.xterm'))).toBe(true)
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(0)
+    // Typing is a different matter: Chromium reveals the text caret as input arrives, so typing
+    // into a tile whose cursor row is below the fold nudges the wall toward it. Not asserted.
+    await window.locator('.wall-scale select').selectOption('auto')
+  })
+
   test('the scale selector switches tile scale and column count at runtime', async () => {
     const { window } = ctx
     const grid = window.locator('.wall-grid')
@@ -284,5 +321,33 @@ test.describe('grid wall', () => {
     await select.selectOption('auto')
     expect(await scale()).toBeLessThanOrEqual(0.5)
     expect(await scale()).toBeGreaterThan(0)
+  })
+})
+
+test.describe('spawned environment', () => {
+  let ctx: LaunchedApp
+
+  test.beforeAll(async () => {
+    // As if Pitwall itself had been launched from inside a Claude Code session.
+    ctx = await launchApp({ CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_CONFIG_DIR: 'keep-me' })
+    await createWorkspace(ctx.window, 'Env')
+  })
+
+  test.afterAll(async () => {
+    await closeApp(ctx)
+  })
+
+  test('terminals do not inherit CLAUDECODE, CLAUDE_CODE_* or PITWALL_*', async () => {
+    const { window } = ctx
+    // The typed command shows the variable names, never the bracketed result, so a match on the
+    // result line can only come from the shell's output.
+    const probe =
+      process.platform === 'win32'
+        ? '"cc=[$env:CLAUDECODE] ccx=[$env:CLAUDE_CODE_ENTRYPOINT] pw=[$env:PITWALL_USER_DATA_DIR] cfg=[$env:CLAUDE_CONFIG_DIR]"'
+        : 'echo "cc=[$CLAUDECODE] ccx=[$CLAUDE_CODE_ENTRYPOINT] pw=[$PITWALL_USER_DATA_DIR] cfg=[$CLAUDE_CONFIG_DIR]"'
+    await addTerminal(window, 'Env', 'Probe', probe)
+    await expect(window.locator('.tile .xterm-screen')).toContainText('cc=[] ccx=[] pw=[] cfg=[keep-me]', {
+      timeout: 15_000
+    })
   })
 })

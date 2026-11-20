@@ -10,7 +10,7 @@ export interface LaunchedApp {
   userDataDir: string
 }
 
-export async function launchApp(): Promise<LaunchedApp> {
+export async function launchApp(extraEnv: Record<string, string> = {}): Promise<LaunchedApp> {
   const userDataDir = mkdtempSync(join(tmpdir(), 'pitwall-e2e-'))
 
   // require, not import: Playwright's test runner executes under plain Node, so requiring the
@@ -19,7 +19,7 @@ export async function launchApp(): Promise<LaunchedApp> {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const electronPath = require('electron') as unknown as string
 
-  const env = { ...process.env }
+  const env = { ...process.env, ...extraEnv }
   // This sandboxed dev session sets ELECTRON_RUN_AS_NODE globally, which makes a bare
   // `electron` invocation run as plain Node instead of launching the app (app/BrowserWindow
   // undefined). Real user machines don't have this set, but strip it defensively either way.

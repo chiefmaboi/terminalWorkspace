@@ -78,6 +78,26 @@ describe('PtyManager', () => {
     vi.useRealTimers()
   })
 
+  it('spawns terminals with the denylist-filtered environment', async () => {
+    const { spawn } = await import('node-pty')
+    process.env.CLAUDECODE = '1'
+    process.env.CLAUDE_CODE_ENTRYPOINT = 'cli'
+    process.env.PITWALL_LEAK_CHECK = '1'
+    try {
+      setup().pm.start('t', '/p', '')
+      const options = vi.mocked(spawn).mock.calls.at(-1)?.[2] as { env: Record<string, string> }
+      expect(options.env).not.toHaveProperty('CLAUDECODE')
+      expect(options.env).not.toHaveProperty('CLAUDE_CODE_ENTRYPOINT')
+      expect(options.env).not.toHaveProperty('PITWALL_LEAK_CHECK')
+      // Ordinary variables still pass through.
+      expect(Object.keys(options.env).some((k) => k.toUpperCase() === 'PATH')).toBe(true)
+    } finally {
+      delete process.env.CLAUDECODE
+      delete process.env.CLAUDE_CODE_ENTRYPOINT
+      delete process.env.PITWALL_LEAK_CHECK
+    }
+  })
+
   describe('restart race', () => {
     it("a stopped process exiting late doesn't remove the session that replaced it", async () => {
       const { pm, onExit } = setup()
