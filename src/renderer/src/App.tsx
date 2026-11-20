@@ -32,6 +32,7 @@ export default function App(): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const focusedTerminalId = useAppStore((s) => s.focusedTerminalId)
   const maximizedTerminalId = useAppStore((s) => s.maximizedTerminalId)
+  const openedWorkspaceIds = useAppStore((s) => s.openedWorkspaceIds)
   const settingsModalOpen = useAppStore((s) => s.settingsModalOpen)
   const load = useAppStore((s) => s.load)
   const openWorkspace = useAppStore((s) => s.openWorkspace)
@@ -282,7 +283,27 @@ export default function App(): React.JSX.Element {
               <p className="empty-main-sub">Use the workspace menu at the top left, or press Ctrl+1…9.</p>
             </div>
           )}
-          {activeWorkspace && activeWorkspace.terminals.length > 0 && (
+          {/* Tiles start their terminals when they mount, so the wall only renders for a
+              workspace opened in THIS run (Restart sessions, the switcher, Ctrl+1-9, Start
+              terminals). The remembered last workspace alone must never spawn anything: that is
+              what "Not now" on the restore prompt promises. */}
+          {activeWorkspace &&
+            activeWorkspace.terminals.length > 0 &&
+            !openedWorkspaceIds.has(activeWorkspace.id) &&
+            !showRestorePrompt && (
+              <div className="empty-main not-running">
+                <div className="empty-main-mark">&gt;_</div>
+                <p>&quot;{activeWorkspace.name}&quot; isn&apos;t running</p>
+                <p className="empty-main-sub">
+                  Its {activeWorkspace.terminals.length} terminal{activeWorkspace.terminals.length === 1 ? '' : 's'}{' '}
+                  start{activeWorkspace.terminals.length === 1 ? 's' : ''} when you open it.
+                </p>
+                <button className="primary" onClick={() => openWorkspace(activeWorkspace.id)}>
+                  Start terminals
+                </button>
+              </div>
+            )}
+          {activeWorkspace && activeWorkspace.terminals.length > 0 && openedWorkspaceIds.has(activeWorkspace.id) && (
             <GridWall workspace={activeWorkspace} />
           )}
           {/* Overlays the wall instead of taking space from it: the shared terminal size can't change. */}

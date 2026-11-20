@@ -992,6 +992,38 @@ test.describe('agent hooks', () => {
   })
 })
 
+test.describe('restore prompt', () => {
+  test('"Not now" starts nothing; "Start terminals" starts them; "Restart sessions" starts them directly', async () => {
+    let ctx = await launchApp()
+    await createWorkspace(ctx.window, 'Persisted')
+    await addTerminal(ctx.window, 'Persisted', 'Keeper', 'echo keeper-started')
+    await expect(ctx.window.locator('.tile .xterm-screen')).toContainText('keeper-started', { timeout: 15_000 })
+    const userDataDir = ctx.userDataDir
+    await closeApp(ctx, { keepUserData: true })
+
+    // Relaunch and decline: no tile mounts, so no terminal process is spawned.
+    ctx = await launchApp({}, { userDataDir })
+    const prompt = ctx.window.locator('.modal', { hasText: 'Restore previous session?' })
+    await expect(prompt).toBeVisible()
+    await expect(ctx.window.locator('.tile')).toHaveCount(0) // nothing started behind the prompt
+    await prompt.locator('button', { hasText: 'Not now' }).click()
+    await expect(ctx.window.locator('.empty-main.not-running')).toContainText("isn't running")
+    await ctx.window.waitForTimeout(1500)
+    await expect(ctx.window.locator('.tile')).toHaveCount(0)
+
+    // Starting on demand works.
+    await ctx.window.locator('.empty-main.not-running button', { hasText: 'Start terminals' }).click()
+    await expect(ctx.window.locator('.tile .xterm-screen')).toContainText('keeper-started', { timeout: 15_000 })
+    await closeApp(ctx, { keepUserData: true })
+
+    // Accepting restarts straight away.
+    ctx = await launchApp({}, { userDataDir })
+    await ctx.window.locator('.modal-actions button.primary', { hasText: 'Restart sessions' }).click()
+    await expect(ctx.window.locator('.tile .xterm-screen')).toContainText('keeper-started', { timeout: 15_000 })
+    await closeApp(ctx)
+  })
+})
+
 test.describe('spawned environment', () => {
   let ctx: LaunchedApp
 
