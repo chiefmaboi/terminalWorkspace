@@ -1,27 +1,42 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { rmSync } from 'fs'
+import { execFileSync } from 'child_process'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { launchApp, closeApp } from './helpers'
 import type { LaunchedApp } from './helpers'
 
 async function createWorkspace(window: Page, name: string): Promise<void> {
-  await window.locator('button[title="New workspace (Ctrl+N)"]').click()
+  await window.locator('.ws-switcher-button').click()
+  await window.locator('.ws-menu-item', { hasText: 'New workspace' }).click()
   await window.locator('.modal input').first().fill(name)
   await window.locator('.modal-actions button.primary').click()
-  await expect(window.locator('.workspace-item', { hasText: name })).toBeVisible()
+  await expect(window.locator('.ws-switcher-name')).toHaveText(name)
 }
 
-async function addTerminal(window: Page, workspaceName: string, terminalName: string, startCommand: string): Promise<void> {
-  await window.locator('.sidebar-tab', { hasText: 'Workspaces' }).click()
-  const group = window.locator('.workspace-group').filter({ hasText: workspaceName })
-  await group.locator('.terminal-add-row').click()
+async function addTerminal(
+  window: Page,
+  workspaceName: string,
+  terminalName: string,
+  startCommand: string,
+  cwd = tmpdir()
+): Promise<void> {
+  // The top bar's "+" adds to the active workspace; switch first if needed.
+  if ((await window.locator('.ws-switcher-name').textContent()) !== workspaceName) {
+    await window.locator('.ws-switcher-button').click()
+    await window.locator('.ws-menu-item', { hasText: workspaceName }).click()
+  }
+  await window.locator('button.add-terminal').click()
   await window.locator('.modal input').first().fill(terminalName)
-  await window.locator('.folder-row input').fill(tmpdir())
+  await window.locator('.folder-row input').fill(cwd)
   await window.locator('.modal label:has-text("Start command") input').fill(startCommand)
   await window.locator('.modal-actions button.primary', { hasText: 'Add' }).click()
 }
+
+/** Whether keyboard focus is inside a terminal (terminal mode) rather than on the wall. */
+const inTerminal = (window: Page): Promise<boolean> =>
+  window.evaluate(() => !!document.activeElement?.closest('.xterm'))
 
 test.describe('workspace lifecycle', () => {
   let ctx: LaunchedApp
@@ -38,7 +53,7 @@ test.describe('workspace lifecycle', () => {
     await expect(ctx.window.locator('.empty-main')).toContainText('No workspaces yet')
   })
 
-  test('creating a workspace shows it in the sidebar with no terminals yet', async () => {
+  test('creating a workspace shows it in the workspace switcher with no terminals yet', async () => {
     const { window } = ctx
     await createWorkspace(window, 'E2E Test Workspace')
     await expect(window.locator('.empty-main')).toContainText('has no terminals yet')
@@ -217,13 +232,100 @@ test.describe('grid wall', () => {
     expect(await ptyResizeCount()).toBe(resizesBefore)
   })
 
-  test('Ctrl+Shift+Enter zooms the selected tile', async () => {
+  test('Ctrl+Shift+Enter leaves terminal mode; from wall mode it zooms and focuses the highlight', async () => {
     const { window } = ctx
-    await tileOf(window, 'Gamma').locator('.tile-overlay').click()
+    const gamma = tileOf(window, 'Gamma')
+    await gamma.locator('.tile-overlay').click()
+    expect(await inTerminal(window)).toBe(true)
+
+    // Terminal mode (typing into a tile in place) -> wall mode; the highlight stays on Gamma.
     await window.keyboard.press('Control+Shift+Enter')
-    await expect(tileOf(window, 'Gamma')).toHaveClass(/tile-zoomed/)
+    expect(await inTerminal(window)).toBe(false)
+    await expect(gamma).toHaveClass(/tile-selected/)
+    await expect(window.locator('.tile-zoomed')).toHaveCount(0)
+
+    // Wall mode -> zoom the highlighted tile and type into it.
+    await window.keyboard.press('Control+Shift+Enter')
+    await expect(gamma).toHaveClass(/tile-zoomed/)
+    await expect.poll(() => inTerminal(window)).toBe(true)
+
+    // Zoomed terminal mode -> restored, wall mode.
     await window.keyboard.press('Control+Shift+Enter')
     await expect(window.locator('.tile-zoomed')).toHaveCount(0)
+    expect(await inTerminal(window)).toBe(false)
+  })
+
+  test('clicking empty wall space deselects everything and enters wall mode', async () => {
+    const { window } = ctx
+    await tileOf(window, 'Alpha').locator('.tile-overlay').click()
+    expect(await inTerminal(window)).toBe(true)
+
+    // A point in the wall that no tile covers (bottom-right: Gamma sits alone on row 2).
+    const point = await window.evaluate(() => {
+      const r = document.querySelector('.wall-scroll')!.getBoundingClientRect()
+      const x = r.right - 30
+      const y = r.bottom - 20
+      return { x, y, onTile: !!document.elementFromPoint(x, y)?.closest('.tile-slot') }
+    })
+    expect(point.onTile).toBe(false)
+    await window.mouse.click(point.x, point.y)
+
+    await expect(window.locator('.tile.tile-selected')).toHaveCount(0)
+    expect(await inTerminal(window)).toBe(false)
+  })
+
+  test('wall mode: arrows move the highlight, Enter zooms + focuses, other keys go nowhere', async () => {
+    const { window } = ctx
+    const selected = (): Promise<string | null> => window.locator('.tile.tile-selected .tile-title').textContent()
+    expect(await inTerminal(window)).toBe(false) // left in wall mode with nothing selected
+
+    // Alpha Beta
+    // Gamma
+    await window.keyboard.press('ArrowRight')
+    expect(await selected()).toBe('Alpha') // first press with no highlight: first tile
+    await window.keyboard.press('ArrowRight')
+    expect(await selected()).toBe('Beta')
+    await window.keyboard.press('ArrowDown')
+    expect(await selected()).toBe('Gamma')
+    await window.keyboard.press('ArrowUp')
+    expect(await selected()).toBe('Alpha')
+    await window.keyboard.press('ArrowDown')
+    expect(await selected()).toBe('Gamma')
+
+    // Typing on the wall reaches no terminal.
+    await window.keyboard.type('zqzq')
+    await window.waitForTimeout(300)
+    for (const t of ['Alpha', 'Beta', 'Gamma']) {
+      await expect(tileOf(window, t).locator('.xterm-screen')).not.toContainText('zqzq')
+    }
+
+    await window.keyboard.press('Enter')
+    const gamma = tileOf(window, 'Gamma')
+    await expect(gamma).toHaveClass(/tile-zoomed/)
+    await expect.poll(() => inTerminal(window)).toBe(true)
+    await window.keyboard.type('echo in-gamma')
+    await window.keyboard.press('Enter')
+    await expect(gamma.locator('.xterm-screen')).toContainText('in-gamma')
+
+    await window.keyboard.press('Control+Shift+Enter')
+    await expect(window.locator('.tile-zoomed')).toHaveCount(0)
+    expect(await inTerminal(window)).toBe(false)
+    await window.keyboard.type('wvwv')
+    await window.waitForTimeout(300)
+    await expect(gamma.locator('.xterm-screen')).not.toContainText('wvwv')
+  })
+
+  test('clicking the dim restores and returns to wall mode', async () => {
+    const { window } = ctx
+    const alpha = tileOf(window, 'Alpha')
+    await alpha.locator('.tile-overlay').dblclick()
+    await expect(alpha).toHaveClass(/tile-zoomed/)
+    await expect.poll(() => inTerminal(window)).toBe(true)
+
+    await window.locator('.wall-dim').click({ position: { x: 4, y: 4 } })
+    await expect(window.locator('.tile-zoomed')).toHaveCount(0)
+    expect(await inTerminal(window)).toBe(false)
+    await expect(alpha).toHaveClass(/tile-selected/)
   })
 
   test('Esc stays with a focused terminal and only restores once focus leaves it', async () => {
@@ -277,16 +379,16 @@ test.describe('grid wall', () => {
     await expect(alpha).toHaveClass(/tile-zoomed/)
     await settled(alpha)
 
+    // 88% of the WINDOW (the wall now spans it, below the top bar), centered on the window.
     const geometry = await window.evaluate(() => {
-      const viewport = document.querySelector('.wall-viewport')!.getBoundingClientRect()
       const pane = document.querySelector('.tile-zoomed')!.getBoundingClientRect()
       return {
-        widthRatio: pane.width / viewport.width,
-        heightRatio: pane.height / viewport.height,
-        leftGap: pane.left - viewport.left,
-        rightGap: viewport.right - pane.right,
-        topGap: pane.top - viewport.top,
-        bottomGap: viewport.bottom - pane.bottom
+        widthRatio: pane.width / window.innerWidth,
+        heightRatio: pane.height / window.innerHeight,
+        leftGap: pane.left,
+        rightGap: window.innerWidth - pane.right,
+        topGap: pane.top,
+        bottomGap: window.innerHeight - pane.bottom
       }
     })
     expect(geometry.widthRatio).toBeCloseTo(0.88, 2)
@@ -304,22 +406,26 @@ test.describe('grid wall', () => {
     const z = (el: Element): number => Number(getComputedStyle(el).zIndex)
     const dimZ = await dim.evaluate(z)
     expect(await beta.locator('.tile-ring').evaluate(z)).toBeGreaterThan(dimZ)
-    // A point on Beta's body (below its header) that the pane doesn't cover: the dim is on top
-    // there, so a click lands on the dim, not the tile.
-    const hitOnBeta = await beta.evaluate((el) => {
-      const tile = el.getBoundingClientRect()
+    // A point on a background tile's body (below its header) that the pane doesn't cover: the
+    // dim is on top there, so a click lands on the dim, not the tile.
+    const hitOnBackgroundTile = await window.evaluate(() => {
       const pane = document.querySelector('.tile-zoomed')!.getBoundingClientRect()
-      for (let fy = 0.02; fy < 1; fy += 0.04) {
-        for (let fx = 0.02; fx < 1; fx += 0.04) {
-          const x = tile.left + fx * tile.width
-          const y = tile.top + fy * tile.height
-          const inPane = x >= pane.left && x <= pane.right && y >= pane.top && y <= pane.bottom
-          if (!inPane && y > tile.top + 30) return String(document.elementFromPoint(x, y)?.className)
+      const wall = document.querySelector('.wall-viewport')!.getBoundingClientRect()
+      for (const el of document.querySelectorAll('.tile:not(.tile-zoomed)')) {
+        const tile = el.getBoundingClientRect()
+        for (let fy = 0.02; fy < 1; fy += 0.02) {
+          for (let fx = 0.02; fx < 1; fx += 0.04) {
+            const x = tile.left + fx * tile.width
+            const y = tile.top + fy * tile.height
+            const inPane = x >= pane.left && x <= pane.right && y >= pane.top && y <= pane.bottom
+            const inWall = y < wall.bottom - 1 && x < wall.right - 1
+            if (!inPane && inWall && y > tile.top + 30) return String(document.elementFromPoint(x, y)?.className)
+          }
         }
       }
-      return 'no uncovered point on Beta'
+      return 'no uncovered tile point'
     })
-    expect(hitOnBeta).toContain('wall-dim')
+    expect(hitOnBackgroundTile).toContain('wall-dim')
 
     // Clicking the dimmed area (outside the pane) restores.
     await dim.click({ position: { x: 4, y: 4 } })
@@ -451,6 +557,184 @@ test.describe('grid wall', () => {
     await select.selectOption('auto')
     expect(await scale()).toBeLessThanOrEqual(0.5)
     expect(await scale()).toBeGreaterThan(0)
+  })
+
+  // macOS reports cwd through /private symlinks; compare against the resolved path there.
+  const osPath = (p: string): string => (process.platform === 'darwin' ? realpathSync(p) : p)
+  const titles = (): Promise<string[]> => ctx.window.locator('.wall-grid .tile-title').allTextContents()
+  const slotOf = (name: string) =>
+    ctx.window.locator('.tile-slot').filter({ has: ctx.window.locator('.tile-title', { hasText: name }) })
+
+  test('the file drawer is closed by default, overlays the wall and never resizes anything', async () => {
+    const { window } = ctx
+    const drawer = window.locator('.file-drawer')
+    await expect(drawer).toHaveCount(0)
+    // dispatchEvent: select without hit-testing (the drawer will cover the right-hand tiles).
+    await tileOf(window, 'Alpha').locator('.tile-overlay').dispatchEvent('click')
+    await expect.poll(() => inTerminal(window)).toBe(true)
+
+    const snapshot = (): Promise<unknown> =>
+      window.evaluate(() => ({
+        viewport: JSON.stringify(document.querySelector('.wall-viewport')!.getBoundingClientRect()),
+        scale: document.querySelector('.wall-grid')!.getAttribute('data-scale'),
+        cols: document.querySelector('.wall-grid')!.getAttribute('data-cols'),
+        slots: [...document.querySelectorAll('.tile-slot')].map((el) => JSON.stringify(el.getBoundingClientRect()))
+      }))
+    const before = await snapshot()
+    const resizesBefore = await ptyResizeCount()
+
+    // The chord works from terminal mode and is never typed into the PTY.
+    await window.keyboard.press('Control+Shift+E')
+    await expect(drawer).toBeVisible()
+    await expect(window.locator('.top-bar-button', { hasText: 'Files' })).toHaveClass(/active/)
+    await window.waitForTimeout(600) // longer than the resize debounce
+    expect(await snapshot()).toEqual(before)
+    expect(await ptyResizeCount()).toBe(resizesBefore)
+    // It sits over the wall's right edge rather than beside it.
+    const edges = await window.evaluate(() => ({
+      drawer: document.querySelector('.file-drawer')!.getBoundingClientRect().right,
+      wall: document.querySelector('.wall-viewport')!.getBoundingClientRect().right
+    }))
+    expect(Math.abs(edges.drawer - edges.wall)).toBeLessThanOrEqual(1)
+    // Rooted at the selected tile's cwd.
+    await expect(drawer.locator('.file-drawer-path')).toHaveText(osPath(tmpdir()))
+
+    await window.locator('.top-bar-button', { hasText: 'Files' }).click()
+    await expect(drawer).toHaveCount(0)
+  })
+
+  test("the drawer follows the selected tile's cwd into a git worktree", async () => {
+    const { window } = ctx
+    const base = mkdtempSync(join(tmpdir(), 'pitwall-wt-'))
+    const repo = join(base, 'repo')
+    const worktree = join(base, 'feature-wt')
+    mkdirSync(repo)
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-c', 'user.name=pitwall-e2e', '-c', 'user.email=e2e@example.invalid', ...args], {
+        cwd: repo,
+        stdio: 'pipe'
+      })
+    }
+    writeFileSync(join(repo, 'tracked.txt'), 'x')
+    git('init', '-q')
+    git('add', '.')
+    git('commit', '-q', '-m', 'init')
+    git('worktree', 'add', '-q', '-b', 'feature', worktree)
+    writeFileSync(join(worktree, 'worktree-only.txt'), 'y')
+
+    const gamma = tileOf(window, 'Gamma')
+    const drawer = window.locator('.file-drawer')
+    try {
+      await gamma.locator('.tile-overlay').dispatchEvent('click')
+      await expect.poll(() => inTerminal(window)).toBe(true)
+      await window.keyboard.type(`cd "${worktree}"`)
+      await window.keyboard.press('Enter')
+      await window.waitForTimeout(1000) // the next prompt carries the shell's cwd report
+
+      await window.keyboard.press('Control+Shift+E')
+      await expect(drawer.locator('.file-drawer-path')).toHaveText(osPath(worktree))
+      await expect(drawer.locator('.file-tree')).toContainText('worktree-only.txt')
+
+      // Selecting another tile re-roots the open drawer at that tile's cwd.
+      await tileOf(window, 'Alpha').locator('.tile-overlay').dispatchEvent('click')
+      await expect(drawer.locator('.file-drawer-path')).toHaveText(osPath(tmpdir()))
+      await window.keyboard.press('Control+Shift+E')
+      await expect(drawer).toHaveCount(0)
+    } finally {
+      // Step the shell back out so the directory can be removed.
+      await gamma.locator('.tile-overlay').dispatchEvent('click')
+      await window.keyboard.type(`cd "${tmpdir()}"`)
+      await window.keyboard.press('Enter')
+      await window.waitForTimeout(500)
+      try {
+        rmSync(base, { recursive: true, force: true })
+      } catch {
+        // best effort
+      }
+    }
+  })
+
+  test('a press moving under 5px is still a click; past it the tile drags and reorders (persisted)', async () => {
+    const { window } = ctx
+    await window.locator('.wall-scroll').evaluate((el) => (el.scrollTop = 0))
+    const before = await titles()
+    expect(before.slice(0, 3)).toEqual(['Alpha', 'Beta', 'Gamma'])
+    const center = async (name: string): Promise<{ x: number; y: number }> => {
+      const box = (await tileOf(window, name).locator('.tile-overlay').boundingBox())!
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    }
+
+    // 3px of travel: below the threshold, so it's an ordinary click (select + focus).
+    const a = await center('Alpha')
+    await window.mouse.move(a.x, a.y)
+    await window.mouse.down()
+    await window.mouse.move(a.x + 3, a.y + 1, { steps: 3 })
+    await expect(window.locator('.tile-dragging')).toHaveCount(0)
+    await window.mouse.up()
+    await expect(tileOf(window, 'Alpha')).toHaveClass(/tile-selected/)
+    await expect.poll(() => inTerminal(window)).toBe(true)
+    expect(await titles()).toEqual(before)
+
+    // A real drag onto Gamma: Alpha takes Gamma's place.
+    const g = await center('Gamma')
+    await window.mouse.move(a.x, a.y)
+    await window.mouse.down()
+    await window.mouse.move((a.x + g.x) / 2, (a.y + g.y) / 2, { steps: 6 })
+    await expect(tileOf(window, 'Alpha')).toHaveClass(/tile-dragging/)
+    await window.mouse.move(g.x, g.y, { steps: 6 })
+    await expect(slotOf('Gamma')).toHaveClass(/drop-target/)
+    await window.mouse.up()
+
+    const expected = [...before]
+    expected.splice(expected.indexOf('Alpha'), 1)
+    expected.splice(before.indexOf('Gamma'), 0, 'Alpha')
+    await expect.poll(titles).toEqual(expected)
+    await expect(window.locator('.tile-dragging')).toHaveCount(0)
+
+    const saved = JSON.parse(readFileSync(join(ctx.userDataDir, 'workspaces.json'), 'utf-8')) as {
+      workspaces: Array<{ name: string; terminals: Array<{ name: string; order: number }> }>
+    }
+    const wall = saved.workspaces.find((w) => w.name === 'Wall')!
+    expect([...wall.terminals].sort((x, y) => x.order - y.order).map((t) => t.name)).toEqual(expected)
+  })
+
+  test('right-click or the pin icon pins a tile 2x2; pins and order survive a restart', async () => {
+    const resizesBefore = await ptyResizeCount()
+    await tileOf(ctx.window, 'Beta').locator('.tile-overlay').click({ button: 'right' })
+    await expect(slotOf('Beta')).toHaveClass(/tile-pinned/)
+    await expect(tileOf(ctx.window, 'Beta').locator('.tile-pin')).toHaveAttribute('aria-pressed', 'true')
+    // grid-column: span 2 computes to start "span 2" / end "auto".
+    expect(await slotOf('Beta').evaluate((el) => getComputedStyle(el).gridColumnStart)).toBe('span 2')
+    expect(await slotOf('Beta').evaluate((el) => getComputedStyle(el).gridRowStart)).toBe('span 2')
+    const widths = await ctx.window.evaluate(() => {
+      const width = (name: string): number => {
+        const slot = [...document.querySelectorAll('.tile-slot')].find(
+          (s) => s.querySelector('.tile-title')?.textContent === name
+        )!
+        return slot.getBoundingClientRect().width
+      }
+      return { pinned: width('Beta'), plain: width('Delta') }
+    })
+    expect(widths.pinned).toBeGreaterThan(1.9 * widths.plain)
+    // Bigger, not resized: the pinned tile shows the same cols/rows at a larger scale.
+    await ctx.window.waitForTimeout(500)
+    expect(await ptyResizeCount()).toBe(resizesBefore)
+
+    // The pin icon toggles too.
+    const gammaPin = tileOf(ctx.window, 'Gamma').locator('.tile-pin')
+    await gammaPin.click()
+    await expect(slotOf('Gamma')).toHaveClass(/tile-pinned/)
+    await gammaPin.click()
+    await expect(slotOf('Gamma')).not.toHaveClass(/tile-pinned/)
+
+    const order = await titles()
+    const userDataDir = ctx.userDataDir
+    await closeApp(ctx, { keepUserData: true })
+    ctx = await launchApp({}, { userDataDir })
+    await ctx.window.locator('.modal-actions button.primary', { hasText: 'Restart sessions' }).click()
+    await expect(slotOf('Beta')).toHaveClass(/tile-pinned/)
+    await expect(slotOf('Gamma')).not.toHaveClass(/tile-pinned/)
+    expect(await titles()).toEqual(order)
   })
 })
 

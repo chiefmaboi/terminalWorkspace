@@ -3,6 +3,9 @@ import treeKill from 'tree-kill'
 import os from 'os'
 import { containsAttentionOsc } from './osc'
 import { buildPtyEnv } from './ptyEnv'
+import { scanCwdReports } from './cwdReport'
+import { foregroundCwd } from './processCwd'
+import type { PaneCwd } from '../shared/types'
 import type { StatusManager } from './statusManager'
 
 const DEFAULT_SHELL = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL ?? 'bash')
@@ -11,7 +14,28 @@ const DEFAULT_SHELL = process.platform === 'win32' ? 'powershell.exe' : (process
 // .bash_profile, which only a login shell sources) are invisible to a plain interactive shell.
 // -l forces the same login-shell startup Terminal.app/iTerm2 use, matching VS Code's own default
 // on macOS for this exact reason.
-const SHELL_ARGS = process.platform === 'darwin' ? ['-l'] : []
+//
+// Windows: PowerShell gets a tiny prompt wrapper that reports the current location as OSC 9;9
+// before the user's own prompt (the sequence Windows Terminal documents for this). Windows has
+// no API for reading another process's cwd, and PowerShell's `cd` doesn't change its process cwd
+// anyway, so the shell telling us is the only reliable signal. The user's prompt (profile,
+// oh-my-posh, ...) is wrapped, not replaced, and renders exactly as before.
+export const POWERSHELL_INTEGRATION = [
+  '$global:__pitwallPrompt = $function:prompt',
+  'function global:prompt {',
+  '  $loc = $executionContext.SessionState.Path.CurrentLocation',
+  "  $osc = ''",
+  "  if ($loc.Provider.Name -eq 'FileSystem') { $osc = \"$([char]27)]9;9;`\"$($loc.ProviderPath)`\"$([char]27)\\\" }",
+  '  if ($global:__pitwallPrompt) { $osc + (& $global:__pitwallPrompt) } else { $osc + "PS $loc> " }',
+  '}'
+].join('\n')
+
+const SHELL_ARGS =
+  process.platform === 'darwin'
+    ? ['-l']
+    : process.platform === 'win32'
+      ? ['-NoExit', '-EncodedCommand', Buffer.from(POWERSHELL_INTEGRATION, 'utf16le').toString('base64')]
+      : []
 
 // Output is coalesced per terminal before crossing IPC. The priority terminal (the one the user
 // is looking at / typing into) flushes at roughly one frame; every other tile flushes far less
@@ -42,6 +66,12 @@ interface Session {
   unacked: number
   paused: boolean
   watchdog: NodeJS.Timeout | null
+  /** Where the shell was started (the terminal's project folder). */
+  startCwd: string
+  /** Last cwd the shell reported via OSC 7 / 9;9 / 633, if it reports at all. */
+  reportedCwd: string | null
+  /** Unterminated OSC tail carried between chunks for cwd parsing. */
+  cwdCarry: string
 }
 
 export class PtyManager {
@@ -91,7 +121,10 @@ export class PtyManager {
       flushTimer: null,
       unacked: 0,
       paused: false,
-      watchdog: null
+      watchdog: null,
+      startCwd: cwd,
+      reportedCwd: null,
+      cwdCarry: ''
     }
     this.sessions.set(terminalId, session)
 
@@ -103,6 +136,9 @@ export class PtyManager {
       if (containsAttentionOsc(data)) {
         this.statusManager.markWaiting(terminalId)
       }
+      const cwdScan = scanCwdReports(data, session.cwdCarry)
+      session.cwdCarry = cwdScan.carry
+      if (cwdScan.cwd) session.reportedCwd = cwdScan.cwd
       this.scheduleAutoIdle(session)
       this.enqueue(session, data)
     })
@@ -121,6 +157,23 @@ export class PtyManager {
     if (startCommand && startCommand.trim().length > 0) {
       proc.write(`${startCommand}${os.EOL}`)
     }
+  }
+
+  /**
+   * Best-known working directory of a terminal, for the file drawer.
+   * macOS/Linux: read from the OS (the agent child's cwd if one is running, else the shell's).
+   * Windows / fallback: the shell's last OSC cwd report, else the folder it was started in.
+   * (An agent's own cwd on Windows, e.g. a worktree it moved into, needs per-pane hook events.)
+   */
+  async getCwd(terminalId: string): Promise<PaneCwd | null> {
+    const session = this.sessions.get(terminalId)
+    if (!session) return null
+    if (process.platform !== 'win32') {
+      const fromOs = await foregroundCwd(session.proc.pid).catch(() => null)
+      if (fromOs) return { cwd: fromOs.cwd, source: fromOs.pid === session.proc.pid ? 'shell' : 'agent' }
+    }
+    if (session.reportedCwd) return { cwd: session.reportedCwd, source: 'reported' }
+    return { cwd: session.startCwd, source: 'start' }
   }
 
   /** The terminal whose output should flush at the fast rate (selected / maximized), or null. */

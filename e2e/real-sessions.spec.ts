@@ -94,12 +94,12 @@ test.describe('real sessions under load', () => {
       window.locator('.tile').filter({ has: window.locator('.tile-title', { hasText: title }) })
 
     // Workspace + 8 terminals: Claude sessions in the scratch folder, shells in this repo.
-    await window.locator('button[title="New workspace (Ctrl+N)"]').click()
+    await window.locator('.ws-switcher-button').click()
+    await window.locator('.ws-menu-item', { hasText: 'New workspace' }).click()
     await window.locator('.modal input').first().fill('Load')
     await window.locator('.modal-actions button.primary').click()
     const add = async (name: string, command: string, cwd: string): Promise<void> => {
-      await window.locator('.sidebar-tab', { hasText: 'Workspaces' }).click()
-      await window.locator('.workspace-group').filter({ hasText: 'Load' }).locator('.terminal-add-row').click()
+      await window.locator('button.add-terminal').click()
       await window.locator('.modal input').first().fill(name)
       await window.locator('.folder-row input').fill(cwd)
       await window.locator('.modal label:has-text("Start command") input').fill(command)

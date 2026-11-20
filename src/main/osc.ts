@@ -17,7 +17,13 @@ export function containsAttentionOsc(chunk: string): boolean {
   while ((match = oscRegex.exec(chunk)) !== null) {
     const code = match[1]
     const body = match[2] ?? ''
-    if (code === '9') return true
+    // ConEmu / Windows Terminal reuse OSC 9 with numeric subcommands: 9;4 is a progress bar and
+    // 9;9 a cwd report (Pitwall's own PowerShell prompt emits one at every prompt). Only a
+    // plain OSC 9 message is a notification.
+    if (code === '9') {
+      if (/^\d+(;|$)/.test(body)) continue
+      return true
+    }
     if (code === '777' && body.toLowerCase().startsWith('notify')) return true
   }
   return false

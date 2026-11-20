@@ -14,16 +14,16 @@ Workspaces on Windows and macOS, built for vibe coding.** It's not a replacement
 it's the missing layer around it. Each Terminal's start command is just a plain string, so it
 works just as well for Codex CLI, Gemini CLI, or any other terminal-based coding agent. Quick facts:
 
-- 🪟🍎 **Native desktop app** on Windows (ConPTY) and macOS (unsigned build, see
+- **Native desktop app** on Windows (ConPTY) and macOS (unsigned build, see
   [Getting started](#getting-started)). No WSL, no separate terminal emulator, no cloud account.
-- 🧩 **Workspaces group Terminals**: each Workspace holds any number of Terminals (own folder +
+- **Workspaces group Terminals**: each Workspace holds any number of Terminals (own folder +
   start command, so any CLI agent works, not just `claude`), opened tiled together with one click.
-- 🟢 **Live status per session** + a desktop notification the moment one is waiting on you.
-- 📁 **Built-in file explorer** with Markdown/HTML preview, no alt-tabbing to VS Code.
-- 🎙️ **Works with voice dictation tools** (Wispr Flow, Windows Voice Access, Spokenly, etc.):
+- **Live status per session** + a desktop notification the moment one is waiting on you.
+- **Built-in file explorer** with Markdown/HTML preview, no alt-tabbing to VS Code.
+- **Works with voice dictation tools** (Wispr Flow, Windows Voice Access, Spokenly, etc.):
   copy/paste and dictated text land correctly inside Claude Code's own UI.
-- 🎨 5 themes, full backup/restore.
-- 🆓 **100% free, open-source, MIT-licensed.** No telemetry, no account, no cloud sync.
+- 5 themes, full backup/restore.
+- **100% free, open-source, MIT-licensed.** No telemetry, no account, no cloud sync.
 
 ## Screenshots
 
@@ -64,7 +64,7 @@ hosted/commercial GUI with cloud sync and subscription tiers. Pitwall is neither
   2. A tiny localhost HTTP server that Claude Code's `Notification` / `Stop` hooks POST to
      (see [Setting up Claude Code hooks](#setting-up-claude-code-hooks) below).
 
-  Sidebar ring: 🔵 blue = waiting for input · 🟢 pulsing green = working · ⚪ grey = idle/done.
+  Status ring: blue = waiting for input, pulsing green = working, grey = idle/done.
   A Windows notification fires on "waiting for input" whenever the app isn't focused, and
   unread events show as a badge count until you open the workspace.
 - **Built-in file explorer**: a collapsible, lazily-loaded file tree scoped to whichever
@@ -100,7 +100,7 @@ only need them if you ever have to compile `node-pty` from source (see
 There are no published releases yet: build from source (below), or grab the installer artifacts
 from a tagged run of the Release workflow.
 
-🛡️ Every Windows installer is scanned with [VirusTotal](https://www.virustotal.com/) right
+Every Windows installer is scanned with [VirusTotal](https://www.virustotal.com/) right
 after it's built. The report link is posted in that release's notes.
 
 ### macOS

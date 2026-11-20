@@ -10,8 +10,15 @@ export interface LaunchedApp {
   userDataDir: string
 }
 
-export async function launchApp(extraEnv: Record<string, string> = {}): Promise<LaunchedApp> {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'pitwall-e2e-'))
+/**
+ * Launch the built app against an isolated profile. Pass `userDataDir` to relaunch against a
+ * profile kept by closeApp(..., { keepUserData: true }), e.g. to check what persisted.
+ */
+export async function launchApp(
+  extraEnv: Record<string, string> = {},
+  options: { userDataDir?: string } = {}
+): Promise<LaunchedApp> {
+  const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'pitwall-e2e-'))
 
   // require, not import: Playwright's test runner executes under plain Node, so requiring the
   // `electron` package here returns the path to the platform Electron binary (its normal
@@ -39,10 +46,8 @@ export async function launchApp(extraEnv: Record<string, string> = {}): Promise<
   return { app, window, userDataDir }
 }
 
-// An unpackaged launch counts as dev mode, so the main process also opens a detached DevTools
-// window. firstWindow() returns whichever window appears first, which is sometimes DevTools,
-// and then nothing the tests wait for ever renders. Pick the window that loaded the app's own
-// file:// page instead.
+// Pick the window that loaded the app's own file:// page rather than firstWindow(): with
+// PITWALL_DEVTOOLS=1 a detached DevTools window can appear first.
 async function appWindow(app: ElectronApplication): Promise<Page> {
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
@@ -53,8 +58,12 @@ async function appWindow(app: ElectronApplication): Promise<Page> {
   throw new Error(`no app window; open windows: ${app.windows().map((w) => w.url()).join(', ')}`)
 }
 
-export async function closeApp({ app, userDataDir }: LaunchedApp): Promise<void> {
+export async function closeApp(
+  { app, userDataDir }: LaunchedApp,
+  options: { keepUserData?: boolean } = {}
+): Promise<void> {
   await app.close()
+  if (options.keepUserData) return
   // The just-killed process can hold its userData files open for a brief moment after
   // app.close() resolves in this environment; retry the cleanup instead of throwing.
   for (let attempt = 0; attempt < 5; attempt++) {

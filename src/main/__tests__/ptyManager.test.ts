@@ -41,6 +41,8 @@ const { procs, makeProc } = vi.hoisted(() => {
 })
 
 vi.mock('node-pty', () => ({ spawn: vi.fn(() => makeProc()) }))
+// getCwd's OS lookup (pgrep/lsof//proc) is exercised by its own parser tests; keep it out of here.
+vi.mock('../processCwd', () => ({ foregroundCwd: vi.fn(async () => null) }))
 vi.mock('tree-kill', () => ({
   default: vi.fn((_pid: number, _signal: string, cb?: () => void) => cb?.())
 }))
@@ -95,6 +97,31 @@ describe('PtyManager', () => {
       delete process.env.CLAUDECODE
       delete process.env.CLAUDE_CODE_ENTRYPOINT
       delete process.env.PITWALL_LEAK_CHECK
+    }
+  })
+
+  it('tracks the cwd a shell reports, falling back to where it started', async () => {
+    const { pm } = setup()
+    pm.start('t', 'C:\\start', '')
+    expect(await pm.getCwd('t')).toEqual({ cwd: 'C:\\start', source: 'start' })
+
+    // Split mid-path across two chunks, terminated with ST (ESC \).
+    procs[0].emitData('\x1b]9;9;"C:\\repo\\.wor')
+    procs[0].emitData('ktrees\\feat"\x1b\\PS> ')
+    expect(await pm.getCwd('t')).toEqual({ cwd: 'C:\\repo\\.worktrees\\feat', source: 'reported' })
+    expect(await pm.getCwd('nope')).toBeNull()
+  })
+
+  it('gives Windows PowerShell a prompt wrapper that reports cwd as OSC 9;9', async () => {
+    const { POWERSHELL_INTEGRATION } = await import('../ptyManager')
+    expect(POWERSHELL_INTEGRATION).toContain('9;9;')
+    expect(POWERSHELL_INTEGRATION).toContain('$global:__pitwallPrompt') // wraps, doesn't replace
+    if (process.platform === 'win32') {
+      const { spawn } = await import('node-pty')
+      setup().pm.start('w', 'C:\\x', '')
+      const args = vi.mocked(spawn).mock.calls.at(-1)?.[1] as string[]
+      const encoded = args[args.indexOf('-EncodedCommand') + 1]
+      expect(Buffer.from(encoded, 'base64').toString('utf16le')).toBe(POWERSHELL_INTEGRATION)
     }
   })
 

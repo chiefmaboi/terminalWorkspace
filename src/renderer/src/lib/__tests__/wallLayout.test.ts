@@ -6,6 +6,7 @@ import {
   TILE_HEADER_PX,
   WALL_PADDING_PX,
   ZOOM_FRACTION,
+  computePinnedLayout,
   computeWallLayout,
   gridHeight,
   zoomRect
@@ -38,10 +39,51 @@ describe('zoomRect', () => {
     expect(Math.abs(r.top - (1004 - r.top - r.height))).toBeLessThanOrEqual(1)
   })
 
+  it('is 88% of the window, centered on the window, kept inside the viewport', () => {
+    // 1600x950 window, wall viewport below a 40px top bar.
+    const r = zoomRect(1600, 910, 1600, 950, 40)
+    expect(r.width).toBe(Math.round(1600 * ZOOM_FRACTION))
+    expect(r.height).toBe(Math.round(950 * ZOOM_FRACTION))
+    // Window-centered: equal gaps above and below in window coordinates.
+    const topInWindow = r.top + 40
+    expect(Math.abs(topInWindow - (950 - topInWindow - r.height))).toBeLessThanOrEqual(1)
+    // A short window can't push the pane under the top bar or past the bottom.
+    const short = zoomRect(800, 260, 800, 300, 40)
+    expect(short.top).toBeGreaterThanOrEqual(0)
+    expect(short.top + short.height).toBeLessThanOrEqual(260)
+  })
+
   it('always leaves room for the header plus at least one body pixel', () => {
     const r = zoomRect(0, 0)
     expect(r.width).toBeGreaterThanOrEqual(1)
     expect(r.height).toBeGreaterThan(TILE_HEADER_PX)
+  })
+})
+
+describe('computePinnedLayout', () => {
+  it('fits a pinned tile as four cells spanning 2x2, filling its box at a larger scale', () => {
+    const l = computePinnedLayout(4, 1, 'auto', G)
+    expect(l.pinSpan).toBe(2)
+    expect(l.pinnedWidth).toBe(2 * l.tileWidth + TILE_GAP_PX)
+    expect(l.pinnedScale).toBeGreaterThan(l.scale)
+    expect(l.pinnedScale).toBeLessThanOrEqual(1)
+    // Same terminal geometry: the scaled host never overflows the pinned box.
+    expect(G.hostWidth * l.pinnedScale).toBeLessThanOrEqual(l.pinnedWidth + 0.5)
+    expect(G.hostHeight * l.pinnedScale).toBeLessThanOrEqual(l.pinnedBodyHeight + 0.5)
+  })
+
+  it('falls back to span 1 when the grid has a single column', () => {
+    const narrow = { hostWidth: 1000, hostHeight: 800, availWidth: 600, availHeight: 3000 }
+    const l = computePinnedLayout(3, 1, 'auto', narrow)
+    expect(l.cols).toBe(1)
+    expect(l.pinSpan).toBe(1)
+    expect(l.pinnedScale).toBeCloseTo(l.scale, 2)
+  })
+
+  it('without pins is the plain layout', () => {
+    const l = computePinnedLayout(4, 0, 'auto', G)
+    expect(l.cols).toBe(computeWallLayout(4, 'auto', G).cols)
+    expect(l.scale).toBe(computeWallLayout(4, 'auto', G).scale)
   })
 })
 

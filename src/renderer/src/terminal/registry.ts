@@ -15,8 +15,6 @@ import { xtermThemeFor } from './themes'
  */
 
 export const SCROLLBACK_LINES = 5000
-const PREVIEW_DEBOUNCE_MS = 500
-const PREVIEW_MAX_LENGTH = 160
 
 
 interface TerminalEntry {
@@ -30,7 +28,6 @@ interface TerminalEntry {
   exited: boolean
   lastCols: number
   lastRows: number
-  previewTimer: ReturnType<typeof setTimeout> | null
   /** Optional per-terminal key hook (e.g. Ctrl+F search while maximized). true = handled. */
   keyHook: ((event: KeyboardEvent) => boolean) | null
 }
@@ -38,7 +35,6 @@ interface TerminalEntry {
 export interface RegistryCallbacks {
   /** Keyboard focus entered a terminal (selection follows focus). */
   onFocus: (id: string) => void
-  onPreview: (id: string, text: string) => void
   onStarted: (id: string) => void
 }
 
@@ -64,7 +60,6 @@ export function initTerminalRegistry(cb: RegistryCallbacks): void {
     // Ack once xterm has actually parsed the chunk; main pauses the PTY when too much output
     // is outstanding (FLOW_HIGH_WATERMARK in ptyManager).
     entry.term.write(data, () => window.api.ptyAck(id, data.length))
-    schedulePreview(entry)
   })
 
   window.api.onPtyExit((id, exitCode) => {
@@ -103,7 +98,6 @@ function create(id: string): TerminalEntry {
     exited: false,
     lastCols: 0,
     lastRows: 0,
-    previewTimer: null,
     keyHook: null
   }
 
@@ -170,7 +164,6 @@ export function dispose(ids: string[]): void {
   for (const id of ids) {
     const entry = entries.get(id)
     if (!entry) continue
-    if (entry.previewTimer) clearTimeout(entry.previewTimer)
     entry.term.dispose()
     entry.host.remove()
     entries.delete(id)
@@ -230,6 +223,28 @@ export function focus(id: string): void {
   else entry.term.focus()
 }
 
+/** Is keyboard focus inside a terminal right now (terminal mode)? */
+export function isTerminalFocused(): boolean {
+  const el = document.activeElement
+  return el instanceof HTMLElement && el.closest('.xterm') !== null
+}
+
+/** Leave terminal mode: take keyboard focus out of whichever terminal has it. */
+export function blurTerminals(): void {
+  const el = document.activeElement
+  if (el instanceof HTMLElement && el.closest('.xterm')) el.blur()
+}
+
+/** Fresh process for a terminal whose PTY main just stopped (Restart in the tile menu). */
+export function restart(id: string): void {
+  const entry = entries.get(id)
+  if (!entry) return
+  entry.exited = false
+  entry.started = false
+  entry.term.reset()
+  ensureStarted(id)
+}
+
 export function setKeyHook(id: string, hook: ((event: KeyboardEvent) => boolean) | null): void {
   const entry = entries.get(id)
   if (entry) entry.keyHook = hook
@@ -248,25 +263,4 @@ export function setTheme(theme: AppTheme): void {
       // Renderer not initialized yet (first frame after open); it was created with currentTheme.
     }
   }
-}
-
-// xterm has already parsed away all ANSI/color codes into its buffer, so reading plain text back
-// out of it is far more reliable than stripping escape sequences from raw PTY output.
-function schedulePreview(entry: TerminalEntry): void {
-  if (!callbacks) return
-  if (entry.previewTimer) clearTimeout(entry.previewTimer)
-  entry.previewTimer = setTimeout(() => {
-    entry.previewTimer = null
-    const buffer = entry.term.buffer.active
-    const lines: string[] = []
-    for (let i = buffer.length - 1; i >= 0 && lines.length < 3; i--) {
-      const text = buffer.getLine(i)?.translateToString(true).trim()
-      if (text) lines.unshift(text)
-    }
-    const joined = lines.join('  ').replace(/\s+/g, ' ').trim()
-    callbacks?.onPreview(
-      entry.id,
-      joined.length > PREVIEW_MAX_LENGTH ? `${joined.slice(0, PREVIEW_MAX_LENGTH)}…` : joined
-    )
-  }, PREVIEW_DEBOUNCE_MS)
 }

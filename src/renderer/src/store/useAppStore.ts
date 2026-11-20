@@ -12,8 +12,6 @@ interface AppState {
   focusedTerminalId: string | null
   /** The tile shown full-size over the wall, or null for the grid view. */
   maximizedTerminalId: string | null
-  previews: Record<string, string>
-  previewUpdatedAt: Record<string, number>
   hookServerPort: number | null
   lastHookEventAt: number | null
   settingsModalOpen: boolean
@@ -33,16 +31,16 @@ interface AppState {
   reorderTerminals: (workspaceId: string, orderedTerminalIds: string[]) => void
   focusTerminal: (terminalId: string) => void
   setMaximized: (terminalId: string | null) => void
+  /** Nothing selected: the wall-mode highlight is cleared. */
+  clearSelection: () => void
   /** Maximize the selected tile, or restore if one is maximized. */
   toggleMaximized: () => void
 
-  setSidebarWidth: (width: number) => void
   setFilePanelWidth: (width: number) => void
-  toggleSidebarCollapsed: () => void
   setStatus: (id: string, status: TerminalStatus, unreadCount: number) => void
   setGitBranch: (id: string, branch: string | null) => void
-  markPtyStarted: (id: string) => void
-  setPreview: (id: string, text: string) => void
+  markPtyStarted: (id: string) => void  /** Toggle a tile's 2x2 pin (persisted on the terminal). */
+  togglePinned: (terminalId: string) => void
   setHookServerPort: (port: number) => void
   markHookEventReceived: (timestamp: number) => void
   updateAppSettings: (patch: Partial<AppSettings>) => void
@@ -55,8 +53,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   runtime: {},
   gitBranches: {},
   settings: {
-    sidebarWidth: 280,
-    sidebarCollapsed: false,
+
     filePanelWidth: 340,
     activeWorkspaceId: null,
     theme: 'dark',
@@ -69,8 +66,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   openedWorkspaceIds: new Set(),
   focusedTerminalId: null,
   maximizedTerminalId: null,
-  previews: {},
-  previewUpdatedAt: {},
+
   hookServerPort: null,
   lastHookEventAt: null,
   settingsModalOpen: false,
@@ -250,27 +246,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ maximizedTerminalId: terminalId })
   },
 
+  clearSelection: () => set({ focusedTerminalId: null }),
+
   toggleMaximized: () => {
     const { maximizedTerminalId, focusedTerminalId } = get()
     if (maximizedTerminalId) set({ maximizedTerminalId: null })
     else if (focusedTerminalId) get().setMaximized(focusedTerminalId)
   },
 
-  setSidebarWidth: (width) => {
-    void window.api.updateSettings({ sidebarWidth: width })
-    set((state) => ({ settings: { ...state.settings, sidebarWidth: width } }))
-  },
 
   setFilePanelWidth: (width) => {
     void window.api.updateSettings({ filePanelWidth: width })
     set((state) => ({ settings: { ...state.settings, filePanelWidth: width } }))
   },
 
-  toggleSidebarCollapsed: () => {
-    const next = !get().settings.sidebarCollapsed
-    void window.api.updateSettings({ sidebarCollapsed: next })
-    set((state) => ({ settings: { ...state.settings, sidebarCollapsed: next } }))
-  },
 
   setStatus: (id, status, unreadCount) =>
     set((state) => ({
@@ -292,11 +281,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
-  setPreview: (id, text) =>
+  togglePinned: (terminalId) => {
+    const terminal = get()
+      .workspaces.flatMap((w) => w.terminals)
+      .find((t) => t.id === terminalId)
+    if (!terminal) return
+    const pinned = !terminal.pinned
+    void window.api.setTerminalPinned(terminalId, pinned)
     set((state) => ({
-      previews: { ...state.previews, [id]: text },
-      previewUpdatedAt: { ...state.previewUpdatedAt, [id]: Date.now() }
-    })),
+      workspaces: state.workspaces.map((w) => ({
+        ...w,
+        terminals: w.terminals.map((t) => (t.id === terminalId ? { ...t, pinned } : t))
+      }))
+    }))
+  },
 
   setHookServerPort: (port) => set({ hookServerPort: port }),
 
@@ -319,24 +317,12 @@ function defaultRuntime(): TerminalRuntimeState {
 // never reclaimed for the rest of the app's runtime, across however many terminals get created
 // and deleted over a long session.
 function pruneTerminalMaps(
-  state: Pick<AppState, 'runtime' | 'gitBranches' | 'previews' | 'previewUpdatedAt'>,
+  state: Pick<AppState, 'runtime' | 'gitBranches'>,
   terminalIds: string[]
-): Pick<AppState, 'runtime' | 'gitBranches' | 'previews' | 'previewUpdatedAt'> {
-  if (terminalIds.length === 0) {
-    return {
-      runtime: state.runtime,
-      gitBranches: state.gitBranches,
-      previews: state.previews,
-      previewUpdatedAt: state.previewUpdatedAt
-    }
-  }
+): Pick<AppState, 'runtime' | 'gitBranches'> {
+  if (terminalIds.length === 0) return { runtime: state.runtime, gitBranches: state.gitBranches }
   const remove = new Set(terminalIds)
   const omit = <T,>(record: Record<string, T>): Record<string, T> =>
     Object.fromEntries(Object.entries(record).filter(([id]) => !remove.has(id)))
-  return {
-    runtime: omit(state.runtime),
-    gitBranches: omit(state.gitBranches),
-    previews: omit(state.previews),
-    previewUpdatedAt: omit(state.previewUpdatedAt)
-  }
+  return { runtime: omit(state.runtime), gitBranches: omit(state.gitBranches) }
 }

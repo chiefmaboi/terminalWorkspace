@@ -9,6 +9,7 @@ import type {
   ImportCommitResult,
   ImportPrepareResult,
   ListDirResult,
+  PaneCwd,
   ReadFileResult,
   Terminal,
   TerminalRuntimeState,
@@ -53,7 +54,9 @@ const api = {
 
   listDir: (path: string): Promise<ListDirResult> => ipcRenderer.invoke(IPC.fsListDir, path),
   readFile: (path: string): Promise<ReadFileResult> => ipcRenderer.invoke(IPC.fsReadFile, path),
-  openFilePreviewWindow: (path: string): Promise<void> => ipcRenderer.invoke(IPC.previewOpen, path),
+  getTerminalCwd: (id: string): Promise<PaneCwd | null> => ipcRenderer.invoke(IPC.ptyGetCwd, id),
+  setTerminalPinned: (id: string, pinned: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC.terminalSetPinned, id, pinned),
 
   ptyStart: (id: string, cols: number, rows: number): Promise<void> =>
     ipcRenderer.invoke(IPC.ptyStart, id, cols, rows),

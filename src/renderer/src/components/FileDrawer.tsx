@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { FileEntry } from '../../../shared/types'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { FileEntry, PaneCwd } from '../../../shared/types'
 import { useAppStore } from '../store/useAppStore'
 import FilePreviewContent, { fileName } from './FilePreviewContent'
 import FileIcon from './FileIcon'
@@ -9,6 +9,13 @@ interface Props {
 }
 
 type DirState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; entries: FileEntry[] }
+
+const SOURCE_LABEL: Record<PaneCwd['source'], string> = {
+  agent: 'agent cwd',
+  shell: 'shell cwd',
+  reported: 'shell cwd',
+  start: 'start folder'
+}
 
 function TreeNode({
   entry,
@@ -75,21 +82,45 @@ function TreeNode({
   )
 }
 
-export default function FileExplorer({ onClose }: Props): React.JSX.Element {
+/**
+ * File explorer as an overlay drawer on the right of the wall. It floats over the tiles and
+ * never takes space from them, so opening it can't change the shared terminal size. Its root is
+ * the selected tile's current working directory (agent child / shell report / start folder, see
+ * PtyManager.getCwd), resolved when it opens, when the selection changes, and on ↻.
+ */
+export default function FileDrawer({ onClose }: Props): React.JSX.Element {
   const focusedTerminalId = useAppStore((s) => s.focusedTerminalId)
   const workspaces = useAppStore((s) => s.workspaces)
-  const filePanelWidth = useAppStore((s) => s.settings.filePanelWidth)
-  const setFilePanelWidth = useAppStore((s) => s.setFilePanelWidth)
+  const drawerWidth = useAppStore((s) => s.settings.filePanelWidth)
+  const setDrawerWidth = useAppStore((s) => s.setFilePanelWidth)
   const terminal = useMemo(
     () => workspaces.flatMap((w) => w.terminals).find((t) => t.id === focusedTerminalId) ?? null,
     [workspaces, focusedTerminalId]
   )
-  const rootPath = terminal?.projectPath ?? null
 
+  const [root, setRoot] = useState<PaneCwd | null>(null)
   const [dirs, setDirs] = useState<Record<string, DirState>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const resizingRef = useRef(false)
+  const terminalId = terminal?.id ?? null
+  const projectPath = terminal?.projectPath ?? null
+
+  const resolveRoot = useCallback(async (): Promise<void> => {
+    if (!terminalId) {
+      setRoot(null)
+      return
+    }
+    const result = await window.api.getTerminalCwd(terminalId)
+    setRoot(result ?? (projectPath ? { cwd: projectPath, source: 'start' } : null))
+  }, [terminalId, projectPath])
+
+  useEffect(() => {
+    setRoot(null)
+    void resolveRoot()
+  }, [resolveRoot])
+
+  const rootPath = root?.cwd ?? null
 
   async function loadDir(path: string): Promise<void> {
     setDirs((prev) => ({ ...prev, [path]: { status: 'loading' } }))
@@ -105,7 +136,6 @@ export default function FileExplorer({ onClose }: Props): React.JSX.Element {
     setExpanded(new Set())
     setSelectedPath(null)
     if (rootPath) void loadDir(rootPath)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootPath])
 
   function toggleDir(path: string): void {
@@ -126,8 +156,7 @@ export default function FileExplorer({ onClose }: Props): React.JSX.Element {
     resizingRef.current = true
     const onMove = (moveEvent: MouseEvent): void => {
       if (!resizingRef.current) return
-      const width = Math.min(Math.max(window.innerWidth - moveEvent.clientX, 220), 800)
-      setFilePanelWidth(width)
+      setDrawerWidth(Math.min(Math.max(window.innerWidth - moveEvent.clientX, 240), Math.min(900, window.innerWidth - 200)))
     }
     const onUp = (): void => {
       resizingRef.current = false
@@ -141,7 +170,7 @@ export default function FileExplorer({ onClose }: Props): React.JSX.Element {
   const rootEntries = rootPath ? dirs[rootPath] : undefined
 
   return (
-    <div className="file-panel" style={{ width: filePanelWidth }}>
+    <aside className="file-drawer" style={{ width: drawerWidth }} aria-label="Files">
       <div className="file-panel-resizer" onMouseDown={startResize} />
       <div className="file-panel-header">
         {selectedPath ? (
@@ -152,26 +181,25 @@ export default function FileExplorer({ onClose }: Props): React.JSX.Element {
           <span className="file-panel-title">{terminal ? terminal.name : 'Files'}</span>
         )}
         <div className="file-panel-header-actions">
-          {selectedPath && (
-            <button
-              className="icon-button small"
-              title="Open in a separate window"
-              onClick={() => void window.api.openFilePreviewWindow(selectedPath)}
-            >
-              ⤢
+          {terminal && (
+            <button className="icon-button small" title="Re-read the tile's cwd" onClick={() => void resolveRoot()}>
+              ↻
             </button>
           )}
-          <button className="icon-button small" title="Close" onClick={onClose}>
+          <button className="icon-button small" title="Close (Ctrl+Shift+E)" onClick={onClose}>
             ✕
           </button>
         </div>
       </div>
-      {!terminal && (
-        <div className="file-tree-hint" style={{ padding: 12 }}>
-          No terminal focused.
+      {root && (
+        <div className="file-drawer-root" title={root.cwd}>
+          <span className="file-drawer-path">{root.cwd}</span>
+          <span className="file-drawer-source">{SOURCE_LABEL[root.source]}</span>
         </div>
       )}
-      {terminal && !selectedPath && (
+      {!terminal && <div className="file-tree-hint file-drawer-empty">Select a tile to browse its files.</div>}
+      {terminal && !root && <div className="file-tree-hint file-drawer-empty">Resolving cwd…</div>}
+      {terminal && root && !selectedPath && (
         <div className="file-tree">
           {rootEntries?.status === 'loading' && <div className="file-tree-hint">Loading…</div>}
           {rootEntries?.status === 'error' && <div className="file-tree-hint">{rootEntries.message}</div>}
@@ -191,6 +219,6 @@ export default function FileExplorer({ onClose }: Props): React.JSX.Element {
         </div>
       )}
       {terminal && selectedPath && <FilePreviewContent path={selectedPath} />}
-    </div>
+    </aside>
   )
 }

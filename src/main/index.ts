@@ -21,6 +21,7 @@ import type {
   ImportPrepareResult,
   ImportPreviewEntry,
   ListDirResult,
+  PaneCwd,
   ReadFileResult,
   RestorableSettings,
   Terminal,
@@ -277,33 +278,6 @@ function createWindow(): void {
   }
 }
 
-function createPreviewWindow(filePath: string): void {
-  const previewWindow = new BrowserWindow({
-    width: 900,
-    height: 800,
-    autoHideMenuBar: true,
-    backgroundColor: '#1e1e1e',
-    title: `Pitwall: ${filePath}`,
-    icon,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  })
-
-  previewWindow.webContents.setWindowOpenHandler((details) => {
-    openExternalSafe(details.url)
-    return { action: 'deny' }
-  })
-  guardNavigation(previewWindow.webContents)
-
-  const query = `preview=${encodeURIComponent(filePath)}`
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    previewWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?${query}`)
-  } else {
-    previewWindow.loadFile(join(__dirname, '../renderer/index.html'), { search: query })
-  }
-}
 
 function persistSettings(patch: Partial<ReturnType<Store['getState']>['settings']>): void {
   const state = store.getState()
@@ -411,15 +385,25 @@ function registerIpcHandlers(): void {
     const state = store.getState()
     const workspaces = state.workspaces.map((w) => {
       if (w.id !== workspaceId) return w
+      // Terminals missing from the given order are kept (after the listed ones) rather than
+      // silently dropped from the workspace, so a stale or partial order can never delete one.
+      const listed = new Set(orderedTerminalIds)
+      const rest = [...w.terminals].sort((a, b) => a.order - b.order).filter((t) => !listed.has(t.id))
       const byId = new Map(w.terminals.map((t) => [t.id, t]))
-      const terminals = orderedTerminalIds
-        .map((id, index) => {
-          const t = byId.get(id)
-          return t ? { ...t, order: index } : null
-        })
-        .filter((t): t is Terminal => t !== null)
+      const terminals = [...orderedTerminalIds.map((id) => byId.get(id)), ...rest]
+        .filter((t): t is Terminal => t !== undefined)
+        .map((t, index) => ({ ...t, order: index }))
       return { ...w, terminals }
     })
+    store.save({ ...state, workspaces })
+  })
+
+  ipcMain.handle(IPC.terminalSetPinned, (_event, terminalId: string, pinned: boolean) => {
+    const state = store.getState()
+    const workspaces = state.workspaces.map((w) => ({
+      ...w,
+      terminals: w.terminals.map((t) => (t.id === terminalId ? { ...t, pinned: pinned === true } : t))
+    }))
     store.save({ ...state, workspaces })
   })
 
@@ -657,8 +641,12 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC.hookServerInfo, () => ({ port: HOOK_SERVER_PORT }))
 
-  ipcMain.handle(IPC.previewOpen, (_event, filePath: string) => {
-    createPreviewWindow(filePath)
+  // The file drawer's root: the terminal's best-known cwd (see PtyManager.getCwd), or its
+  // project folder when its PTY isn't running.
+  ipcMain.handle(IPC.ptyGetCwd, async (_event, terminalId: string): Promise<PaneCwd | null> => {
+    const found = findTerminal(terminalId)
+    if (!found) return null
+    return (await ptyManager.getCwd(terminalId)) ?? { cwd: found.terminal.projectPath, source: 'start' }
   })
 
   ipcMain.handle(IPC.appGetVersion, () => app.getVersion())

@@ -19,16 +19,25 @@ export interface ZoomRect {
 }
 
 /**
- * Where the zoomed pane sits inside a wall viewport of the given size: ZOOM_FRACTION of each
- * dimension, centered, in whole pixels. The zoomed pane's body (this minus the header) is also
- * the shared terminal geometry, so zooming in or out never changes any terminal's cols/rows.
+ * Where the zoomed pane sits, in wall-viewport coordinates: ZOOM_FRACTION of the WINDOW's width
+ * and height, centered on the window, clamped to stay inside the viewport (which starts
+ * `viewportTop` px below the window top, under the top bar). The window size defaults to the
+ * viewport's. The pane's body (this minus the header) is also the shared terminal geometry, so
+ * zooming in or out never changes any terminal's cols/rows.
  */
-export function zoomRect(viewportWidth: number, viewportHeight: number): ZoomRect {
-  const width = Math.max(1, Math.round(viewportWidth * ZOOM_FRACTION))
-  const height = Math.max(TILE_HEADER_PX + 1, Math.round(viewportHeight * ZOOM_FRACTION))
+export function zoomRect(
+  viewportWidth: number,
+  viewportHeight: number,
+  windowWidth = viewportWidth,
+  windowHeight = viewportHeight,
+  viewportTop = 0
+): ZoomRect {
+  const width = Math.max(1, Math.min(viewportWidth, Math.round(windowWidth * ZOOM_FRACTION)))
+  const height = Math.max(TILE_HEADER_PX + 1, Math.min(viewportHeight, Math.round(windowHeight * ZOOM_FRACTION)))
+  const centeredTop = Math.floor((windowHeight - height) / 2) - viewportTop
   return {
     left: Math.floor((viewportWidth - width) / 2),
-    top: Math.floor((viewportHeight - height) / 2),
+    top: Math.max(0, Math.min(centeredTop, viewportHeight - height)),
     width,
     height
   }
@@ -115,6 +124,38 @@ export function computeWallLayout(count: number, mode: TileScaleMode, g: WallGeo
     tileWidth: Math.floor(g.hostWidth * scale),
     tileBodyHeight: Math.floor(g.hostHeight * scale)
   }
+}
+
+export interface PinnedLayout extends WallLayout {
+  /** Columns/rows a pinned tile spans: 2, or 1 when the grid has a single column. */
+  pinSpan: number
+  /** Pinned tile size and the derived scale that fills it (same cols/rows as every tile). */
+  pinnedWidth: number
+  pinnedBodyHeight: number
+  pinnedScale: number
+}
+
+/**
+ * Layout with pinned tiles, each occupying 2x2 cells. They are fitted as 4 cells apiece; if
+ * that leaves a single column there is no room for a 2-wide tile, so pins span 1 and the layout
+ * is recomputed as plain tiles. A pinned tile shows the same terminal (same cols/rows) at the
+ * scale that fills its larger box: derived, never a per-tile setting.
+ */
+export function computePinnedLayout(
+  count: number,
+  pinnedCount: number,
+  mode: TileScaleMode,
+  g: WallGeometry
+): PinnedLayout {
+  let layout = computeWallLayout(count + 3 * pinnedCount, mode, g)
+  let pinSpan = pinnedCount > 0 && layout.cols >= 2 ? 2 : 1
+  if (pinnedCount > 0 && pinSpan === 1) layout = computeWallLayout(count, mode, g)
+  if (pinSpan === 2 && layout.cols < 2) pinSpan = 1
+  const pinnedWidth = pinSpan * layout.tileWidth + (pinSpan - 1) * TILE_GAP_PX
+  const pinnedBodyHeight =
+    pinSpan * (layout.tileBodyHeight + TILE_HEADER_PX) + (pinSpan - 1) * TILE_GAP_PX - TILE_HEADER_PX
+  const pinnedScale = Math.min(pinnedWidth / g.hostWidth, pinnedBodyHeight / g.hostHeight, 1)
+  return { ...layout, pinSpan, pinnedWidth, pinnedBodyHeight, pinnedScale }
 }
 
 /** Total grid height for `count` tiles under `layout` (used to decide whether the wall scrolls). */

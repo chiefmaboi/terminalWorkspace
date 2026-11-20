@@ -6,6 +6,16 @@ export interface Terminal {
   projectPath: string
   startCommand: string
   order: number
+  /** Pinned tiles span 2x2 cells on the wall. Optional so older saved files load unchanged. */
+  pinned?: boolean
+}
+
+/** A terminal's best-known working directory and where that knowledge came from. */
+export interface PaneCwd {
+  cwd: string
+  /** agent: the shell's foreground child (OS); shell: the shell itself (OS);
+   * reported: the shell's OSC 7 / 9;9 / 633 report; start: the folder it was started in. */
+  source: 'agent' | 'shell' | 'reported' | 'start'
 }
 
 export interface Workspace {
@@ -29,8 +39,7 @@ export const TILE_SCALE_MODES: readonly TileScaleMode[] = ['auto', '0.5', '0.4',
 
 export interface AppSettings {
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean }
-  sidebarWidth: number
-  sidebarCollapsed: boolean
+
   filePanelWidth: number
   activeWorkspaceId: string | null
   theme: AppTheme
@@ -112,7 +121,6 @@ export const IPC = {
 
   fsListDir: 'fs:listDir',
   fsReadFile: 'fs:readFile',
-  previewOpen: 'preview:open',
 
   ptyStart: 'pty:start',
   ptyInput: 'pty:input',
@@ -121,6 +129,8 @@ export const IPC = {
   ptyExit: 'pty:exit',
   ptyAck: 'pty:ack',
   ptySetPriority: 'pty:setPriority',
+  ptyGetCwd: 'pty:getCwd',
+  terminalSetPinned: 'terminal:setPinned',
 
   statusChanged: 'status:changed',
   gitBranchChanged: 'git:branchChanged',

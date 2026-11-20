@@ -30,6 +30,14 @@ describe('containsAttentionOsc', () => {
     expect(containsAttentionOsc(chunk)).toBe(true)
   })
 
+  it('ignores OSC 9 numeric subcommands: 9;9 cwd reports and 9;4 progress', () => {
+    const ST = `${ESC}\\`
+    expect(containsAttentionOsc(`${ESC}]9;9;"C:\\Users\\me"${ST}`)).toBe(false)
+    expect(containsAttentionOsc(`${ESC}]9;4;1;50${BEL}`)).toBe(false)
+    // ...but still finds a real notification next to them.
+    expect(containsAttentionOsc(`${ESC}]9;9;"C:\\x"${BEL}${ESC}]9;agent needs input${BEL}`)).toBe(true)
+  })
+
   it('supports the ST (ESC \\\\) terminator as well as BEL', () => {
     expect(containsAttentionOsc(`${ESC}]9;done${ESC}\\`)).toBe(true)
   })

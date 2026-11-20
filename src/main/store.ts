@@ -10,8 +10,7 @@ function defaultState(): PersistedState {
   return {
     workspaces: [],
     settings: {
-      sidebarWidth: 280,
-      sidebarCollapsed: false,
+
       filePanelWidth: 340,
       activeWorkspaceId: null,
       theme: 'dark',

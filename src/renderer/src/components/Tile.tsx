@@ -3,12 +3,20 @@ import { flushSync } from 'react-dom'
 import type { Terminal, TerminalStatus } from '../../../shared/types'
 import * as terminals from '../terminal/registry'
 import { useAppStore } from '../store/useAppStore'
+import { useTileActions } from './tileActions'
+import { PinIcon } from './icons'
 
 interface Props {
   terminal: Terminal
+  /** Highlighted on the wall (wall mode) / the tile keyboard focus belongs to (terminal mode). */
   selected: boolean
   /** This tile is the zoomed pane (store: maximizedTerminalId). */
   zoomed: boolean
+  /** Grid placement and size overrides for a pinned (2x2) tile. */
+  slotStyle?: React.CSSProperties
+  /** Being dragged / hovered as the drop target during a drag-reorder. */
+  dragging: boolean
+  dropTarget: boolean
 }
 
 const ZOOM_MS = 180
@@ -30,21 +38,51 @@ function statusDotClass(status: TerminalStatus): string {
   return `status-dot status-${status}`
 }
 
-/** Someone is typing in a text field that isn't a terminal: don't steal their focus. */
-function typingElsewhere(): boolean {
-  const el = document.activeElement
-  if (!(el instanceof HTMLElement)) return false
-  if (el.classList.contains('xterm-helper-textarea')) return false
-  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable
+/** The ⋯ menu: rename / restart / delete, the per-terminal actions the sidebar used to hold. */
+function TileMenu({ terminal, onClose }: { terminal: Terminal; onClose: () => void }): React.JSX.Element {
+  const actions = useTileActions()
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onPointer = (e: MouseEvent): void => {
+      if (!rootRef.current?.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', onPointer)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [onClose])
+  const run = (fn?: (t: Terminal) => void): void => {
+    onClose()
+    fn?.(terminal)
+  }
+  return (
+    <div className="tile-menu" ref={rootRef} role="menu" onClick={(e) => e.stopPropagation()}>
+      <button onClick={() => run(actions?.rename)}>Rename…</button>
+      <button onClick={() => run(actions?.restart)}>Restart</button>
+      <button className="danger-item" onClick={() => run(actions?.remove)}>
+        Delete…
+      </button>
+    </div>
+  )
 }
 
 /**
  * One terminal on the wall. The terminal always renders at the shared geometry (--host-w ×
- * --host-h, the zoomed pane's body) and is shown at --tile-scale. Zooming lifts the tile out of
- * its grid slot (which keeps its place) into a pane floating over the dimmed wall at scale 1, so
- * the PTY never resizes and the agent's TUI never reflows.
+ * --host-h, the zoomed pane's body) and is shown at the tile's scale. Zooming lifts the tile out
+ * of its grid slot (which keeps its place) into a pane floating over the dimmed wall at scale 1,
+ * so the PTY never resizes and the agent's TUI never reflows.
+ *
+ * Pointer handling for drag-to-reorder lives in GridWall; tiles only expose data-terminal-id.
  */
-export default function Tile({ terminal, selected, zoomed }: Props): React.JSX.Element {
+export default function Tile({ terminal, selected, zoomed, slotStyle, dragging, dropTarget }: Props): React.JSX.Element {
   const id = terminal.id
   const slotRef = useRef<HTMLDivElement>(null)
   const tileRef = useRef<HTMLDivElement>(null)
@@ -54,8 +92,11 @@ export default function Tile({ terminal, selected, zoomed }: Props): React.JSX.E
   const branch = useAppStore((s) => s.gitBranches[id])
   const focusTerminal = useAppStore((s) => s.focusTerminal)
   const setMaximized = useAppStore((s) => s.setMaximized)
+  const togglePinned = useAppStore((s) => s.togglePinned)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const pinned = terminal.pinned === true
 
   // Restoring animates the pane back into its slot BEFORE it leaves the zoomed layout, so it
   // must stay zoomed in the DOM for the animation's duration even though the store already
@@ -123,7 +164,7 @@ export default function Tile({ terminal, selected, zoomed }: Props): React.JSX.E
 
   useEffect(() => () => animationRef.current?.cancel(), [])
 
-  // Zooming hands the terminal keyboard focus; restoring closes its search bar.
+  // Zooming hands the terminal keyboard focus (terminal mode); restoring closes its search bar.
   useEffect(() => {
     if (zoomed) requestAnimationFrame(() => terminals.focus(id))
     else setSearchOpen(false)
@@ -146,20 +187,35 @@ export default function Tile({ terminal, selected, zoomed }: Props): React.JSX.E
     return () => terminals.setKeyHook(id, null)
   }, [id, zoomed])
 
-  // A selection made elsewhere (sidebar, toast, notification) also gets keyboard focus.
-  useEffect(() => {
-    if (selected && !typingElsewhere()) requestAnimationFrame(() => terminals.focus(id))
-  }, [id, selected])
-
   const toggleZoom = (): void => setMaximized(zoomed ? null : id)
 
-  const className = ['tile', selected ? 'tile-selected' : '', zoomedLayout ? 'tile-zoomed' : '']
+  const slotClassName = ['tile-slot', pinned ? 'tile-pinned' : '', dropTarget ? 'drop-target' : '']
+    .filter(Boolean)
+    .join(' ')
+  const className = [
+    'tile',
+    selected ? 'tile-selected' : '',
+    zoomedLayout ? 'tile-zoomed' : '',
+    dragging ? 'tile-dragging' : ''
+  ]
     .filter(Boolean)
     .join(' ')
 
   return (
-    <div className="tile-slot" ref={slotRef}>
-      <div className={className} ref={tileRef} data-terminal-id={id} data-status={status}>
+    <div className={slotClassName} ref={slotRef} style={slotStyle} data-terminal-id={id}>
+      <div
+        className={className}
+        ref={tileRef}
+        data-terminal-id={id}
+        data-status={status}
+        onContextMenu={(e) => {
+          // Right-click pins/unpins (2x2 on the wall). Inside a zoomed pane the terminal keeps
+          // the browser's default context menu (copy/paste).
+          if (zoomedLayout) return
+          e.preventDefault()
+          togglePinned(id)
+        }}
+      >
         {/* Status/selection ring as its own layer: it stacks above the wall's dim overlay, so
             background tiles' states stay readable while another pane is zoomed. */}
         <div className="tile-ring" />
@@ -167,14 +223,37 @@ export default function Tile({ terminal, selected, zoomed }: Props): React.JSX.E
           className="tile-header"
           onClick={() => focusTerminal(id)}
           onDoubleClick={toggleZoom}
-          title={zoomed ? 'Double-click or Ctrl+Shift+Enter to restore' : 'Double-click to zoom'}
+          title={zoomed ? 'Double-click or Ctrl+Shift+Enter to restore' : 'Double-click to zoom, drag to reorder'}
         >
           <span className={statusDotClass(status)} />
           <span className="tile-title">{terminal.name}</span>
           {branch && <span className="tile-branch">⎇ {branch}</span>}
           <button
-            className="tile-max-button"
-            title={zoomed ? 'Restore (Ctrl+Shift+Enter)' : 'Zoom (Ctrl+Shift+Enter)'}
+            className={`tile-icon-button tile-pin${pinned ? ' active' : ''}`}
+            title={pinned ? 'Unpin (right-click)' : 'Pin 2x2 (right-click)'}
+            aria-pressed={pinned}
+            onClick={(e) => {
+              e.stopPropagation()
+              togglePinned(id)
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <PinIcon />
+          </button>
+          <button
+            className="tile-icon-button tile-menu-button"
+            title="Terminal actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuOpen((o) => !o)
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            ⋯
+          </button>
+          <button
+            className="tile-icon-button tile-max-button"
+            title={zoomed ? 'Restore (Ctrl+Shift+Enter)' : 'Zoom (Enter in wall mode)'}
             onClick={(e) => {
               e.stopPropagation()
               toggleZoom()
@@ -183,6 +262,7 @@ export default function Tile({ terminal, selected, zoomed }: Props): React.JSX.E
           >
             {zoomed ? '⤡' : '⤢'}
           </button>
+          {menuOpen && <TileMenu terminal={terminal} onClose={() => setMenuOpen(false)} />}
         </div>
         <div className="tile-body">
           <div className="tile-host" ref={hostRef} />
