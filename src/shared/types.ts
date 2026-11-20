@@ -23,6 +23,10 @@ export interface TerminalRuntimeState {
 
 export type AppTheme = 'dark' | 'light' | 'dracula' | 'nord' | 'solarized'
 
+/** Grid wall tile scale: 'auto' fits the wall (max 0.5, floor 0.33), or a fixed target scale. */
+export type TileScaleMode = 'auto' | '0.5' | '0.4' | '0.33'
+export const TILE_SCALE_MODES: readonly TileScaleMode[] = ['auto', '0.5', '0.4', '0.33']
+
 export interface AppSettings {
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean }
   sidebarWidth: number
@@ -33,7 +37,9 @@ export interface AppSettings {
   notificationsEnabled: boolean
   defaultStartCommand: string
   idleDebounceMs: number
+  /** Unused since the grid wall replaced column tiling; kept so the saved format stays stable. */
   paneColFractions: number[]
+  tileScale: TileScaleMode
 }
 
 /** The subset of AppSettings worth offering to restore from someone else's export — pure

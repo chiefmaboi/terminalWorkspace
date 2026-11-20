@@ -48,7 +48,7 @@ test.describe('workspace lifecycle', () => {
     const { window } = ctx
     await addTerminal(window, 'E2E Test Workspace', 'Main', 'echo hello-e2e')
 
-    await expect(window.locator('.terminal-pane .terminal-pane-title')).toContainText('Main')
+    await expect(window.locator('.tile .tile-title')).toContainText('Main')
     // The pty actually starts and the shell prints something — proves the IPC round trip
     // (renderer -> main -> node-pty -> back to renderer) works end to end, not just the UI shell.
     await expect(window.locator('.xterm-screen')).toContainText('hello-e2e', { timeout: 15_000 })
@@ -71,9 +71,9 @@ test.describe('multi-terminal workspace and settings', () => {
     await closeApp(ctx)
   })
 
-  test('a workspace with two terminals shows both panes tiled together', async () => {
+  test('a workspace with two terminals shows both as tiles on the wall', async () => {
     const { window } = ctx
-    await expect(window.locator('.terminal-pane').filter({ visible: true })).toHaveCount(2)
+    await expect(window.locator('.wall-grid .tile').filter({ visible: true })).toHaveCount(2)
   })
 
   test('switching theme in Settings updates the document theme attribute', async () => {
@@ -93,12 +93,10 @@ test.describe('multi-terminal workspace and settings', () => {
 test.describe('pty lifecycle', () => {
   let ctx: LaunchedApp
 
-  // Locate one pane's terminal by its header title (several panes are tiled at once).
-  const screenOf = (window: Page, title: string) =>
-    window
-      .locator('.terminal-pane')
-      .filter({ has: window.locator('.terminal-pane-title', { hasText: title }) })
-      .locator('.xterm-screen')
+  // Locate one tile's terminal by its header title (several tiles are on the wall at once).
+  const tileOf = (window: Page, title: string) =>
+    window.locator('.tile').filter({ has: window.locator('.tile-title', { hasText: title }) })
+  const screenOf = (window: Page, title: string) => tileOf(window, title).locator('.xterm-screen')
 
   test.beforeAll(async () => {
     ctx = await launchApp()
@@ -126,7 +124,8 @@ test.describe('pty lifecycle', () => {
 
     await expect(screen).toContainText('process exited with code 7', { timeout: 15_000 })
 
-    await screen.click()
+    // Tiles are display-only: the overlay takes the click, selects the tile and focuses it.
+    await tileOf(window, 'Exiter').locator('.tile-overlay').click()
     await window.keyboard.press('Enter')
     // Exit code 8 can only come from a freshly spawned process re-running the start command.
     await expect(screen).toContainText('process exited with code 8', { timeout: 15_000 })
@@ -144,5 +143,146 @@ test.describe('pty lifecycle', () => {
     await addTerminal(window, 'Pty Workspace', 'Flood', flood)
 
     await expect(screenOf(window, 'Flood')).toContainText('flood-line-60000', { timeout: 60_000 })
+  })
+})
+
+test.describe('grid wall', () => {
+  let ctx: LaunchedApp
+
+  const tileOf = (window: Page, title: string) =>
+    window.locator('.tile').filter({ has: window.locator('.tile-title', { hasText: title }) })
+  // Every pty:resize the renderer sends, recorded by an extra listener in the main process.
+  const ptyResizeCount = (): Promise<number> =>
+    ctx.app.evaluate(() => (globalThis as unknown as { __ptyResizes: unknown[] }).__ptyResizes.length)
+
+  test.beforeAll(async () => {
+    ctx = await launchApp()
+    await createWorkspace(ctx.window, 'Wall')
+    await addTerminal(ctx.window, 'Wall', 'Alpha', 'echo alpha-ready')
+    await addTerminal(ctx.window, 'Wall', 'Beta', 'echo beta-ready')
+    await addTerminal(ctx.window, 'Wall', 'Gamma', 'echo gamma-ready')
+    for (const name of ['alpha', 'beta', 'gamma']) {
+      await expect(tileOf(ctx.window, name[0].toUpperCase() + name.slice(1)).locator('.xterm-screen')).toContainText(
+        `${name}-ready`,
+        { timeout: 15_000 }
+      )
+    }
+    await ctx.app.evaluate(({ ipcMain }) => {
+      const g = globalThis as unknown as { __ptyResizes: unknown[] }
+      g.__ptyResizes = []
+      ipcMain.on('pty:resize', (_event, ...args) => g.__ptyResizes.push(args))
+    })
+  })
+
+  test.afterAll(async () => {
+    await closeApp(ctx)
+  })
+
+  test('single click selects a tile and sends keystrokes to its pty', async () => {
+    const { window } = ctx
+    const beta = tileOf(window, 'Beta')
+    await beta.locator('.tile-overlay').click()
+    await expect(beta).toHaveClass(/tile-selected/)
+    await expect(window.locator('.tile.tile-selected')).toHaveCount(1)
+
+    await window.keyboard.type('echo typed-into-beta')
+    await window.keyboard.press('Enter')
+    // The shell echoes input (xterm never echoes locally), so this proves the keystrokes went
+    // through Beta's pty and nowhere else.
+    await expect(beta.locator('.xterm-screen')).toContainText('typed-into-beta')
+    await expect(tileOf(window, 'Alpha').locator('.xterm-screen')).not.toContainText('typed-into-beta')
+  })
+
+  test('double click maximizes on WebGL without resizing the pty; Ctrl+Shift+Enter restores to DOM', async () => {
+    const { window } = ctx
+    const alpha = tileOf(window, 'Alpha')
+    const resizesBefore = await ptyResizeCount()
+
+    await alpha.locator('.tile-overlay').dblclick()
+    await expect(alpha).toHaveClass(/tile-maximized/)
+    await expect(window.locator('.wall-viewport')).toHaveClass(/has-maximized/)
+    await expect(alpha.locator('.terminal-host')).toHaveAttribute('data-renderer', 'webgl')
+    await expect(tileOf(window, 'Beta').locator('.terminal-host')).toHaveAttribute('data-renderer', 'dom')
+
+    // The terminal has focus; the chord must still work from inside it.
+    await window.keyboard.press('Control+Shift+Enter')
+    await expect(window.locator('.tile-maximized')).toHaveCount(0)
+    await expect(alpha.locator('.terminal-host')).toHaveAttribute('data-renderer', 'dom')
+
+    // Same shared geometry in both modes: maximize/restore never resizes a pty (so the agent's
+    // TUI never reflows). Wait out the resize debounce before counting.
+    await window.waitForTimeout(500)
+    expect(await ptyResizeCount()).toBe(resizesBefore)
+  })
+
+  test('Ctrl+Shift+Enter maximizes the selected tile', async () => {
+    const { window } = ctx
+    await tileOf(window, 'Gamma').locator('.tile-overlay').click()
+    await window.keyboard.press('Control+Shift+Enter')
+    await expect(tileOf(window, 'Gamma')).toHaveClass(/tile-maximized/)
+    await window.keyboard.press('Control+Shift+Enter')
+    await expect(window.locator('.tile-maximized')).toHaveCount(0)
+  })
+
+  test('Esc stays with a focused terminal and only restores once focus leaves it', async () => {
+    const { window } = ctx
+    const alpha = tileOf(window, 'Alpha')
+    await alpha.locator('.tile-overlay').dblclick()
+    await expect(alpha).toHaveClass(/tile-maximized/)
+    await expect.poll(() => window.evaluate(() => !!document.activeElement?.closest('.xterm'))).toBe(true)
+
+    await window.keyboard.press('Escape')
+    await expect(alpha).toHaveClass(/tile-maximized/)
+
+    // Clicking the (non-focusable) header moves focus out of the terminal.
+    await alpha.locator('.tile-title').click()
+    await expect.poll(() => window.evaluate(() => !!document.activeElement?.closest('.xterm'))).toBe(false)
+    await window.keyboard.press('Escape')
+    await expect(window.locator('.tile-maximized')).toHaveCount(0)
+  })
+
+  test('a burst of window resizes is debounced into one pty resize per terminal', async () => {
+    const { app, window } = ctx
+    const before = await ptyResizeCount()
+    const [width, height] = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+    for (let step = 1; step <= 5; step++) {
+      await app.evaluate(
+        ({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0], size[1]),
+        [width - step * 40, height - step * 20]
+      )
+      await window.waitForTimeout(30)
+    }
+    await window.waitForTimeout(800)
+    expect(await ptyResizeCount()).toBe(before + 3)
+
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0], size[1]), [
+      width,
+      height
+    ])
+    await window.waitForTimeout(800)
+    expect(await ptyResizeCount()).toBe(before + 6)
+  })
+
+  test('the scale selector switches tile scale and column count at runtime', async () => {
+    const { window } = ctx
+    const grid = window.locator('.wall-grid')
+    const select = window.locator('.wall-scale select')
+    const scale = async (): Promise<number> => Number(await grid.getAttribute('data-scale'))
+
+    await select.selectOption('0.33')
+    await expect(grid).toHaveAttribute('data-cols', '3')
+    expect(await scale()).toBeLessThanOrEqual(0.33)
+
+    await select.selectOption('0.4')
+    await expect(grid).toHaveAttribute('data-cols', '2')
+    expect(await scale()).toBeLessThanOrEqual(0.4)
+
+    await select.selectOption('0.5')
+    await expect(grid).toHaveAttribute('data-cols', '2')
+    expect(await scale()).toBeGreaterThan(0.4)
+
+    await select.selectOption('auto')
+    expect(await scale()).toBeLessThanOrEqual(0.5)
+    expect(await scale()).toBeGreaterThan(0)
   })
 })

@@ -595,42 +595,6 @@ body,
   margin-bottom: 10px;
 }
 
-.panes {
-  flex: 1;
-  display: grid;
-  position: relative;
-  min-height: 0;
-  min-width: 0;
-  gap: 10px;
-  padding: 10px;
-  background: var(--bg);
-}
-
-.column-resizer {
-  position: absolute;
-  top: 10px;
-  bottom: 10px;
-  width: 10px;
-  margin-left: -5px;
-  cursor: col-resize;
-  z-index: 6;
-}
-
-.column-resizer:hover,
-.column-resizer:active {
-  background: color-mix(in srgb, var(--mono-accent) 35%, transparent);
-  border-radius: 4px;
-}
-
-.main-toolbar {
-  position: absolute;
-  top: 8px;
-  right: 16px;
-  z-index: 5;
-  display: flex;
-  gap: 6px;
-}
-
 .auto-arrange-button {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -892,104 +856,15 @@ body,
   padding: 4px 8px;
 }
 
-.terminal-pane {
-  min-width: 0;
-  min-height: 0;
-  flex-direction: column;
-  position: relative;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--bg-elevated);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.terminal-pane.pane-active {
-  border-color: color-mix(in srgb, var(--mono-accent) 45%, var(--border));
-}
-
 /* xterm.js keeps its hidden input textarea at width:0/height:0 outside of IME composition —
    the JS side already tracks its left/top to the real cursor position, but the degenerate
    0x0 size makes many OS-level dictation tools (which inject text via the accessibility
    tree's bounding rect, not just simulated keystrokes) treat it as an invisible, unusable
    target even while it's correctly focused. Give it a small real size; it's still invisible
    via opacity:0 from xterm's own stylesheet, so this changes nothing visually. */
-.terminal-container .xterm-helper-textarea {
+.terminal-host .xterm-helper-textarea {
   width: 16px !important;
   height: 16px !important;
-}
-
-.terminal-pane-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  font-family: var(--mono-font);
-  font-size: 11px;
-  color: var(--text-dim);
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.terminal-pane-header .status-dot {
-  width: 7px;
-  height: 7px;
-  flex-shrink: 0;
-}
-
-.terminal-pane-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-  font-weight: 500;
-}
-
-.terminal-pane-branch {
-  color: var(--mono-accent);
-  opacity: 0.8;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
-.terminal-container {
-  flex: 1;
-  min-height: 0;
-  padding: 6px 8px 2px;
-}
-
-.terminal-search-bar {
-  display: flex;
-  gap: 6px;
-  padding: 4px 6px;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
-  position: absolute;
-  top: 32px;
-  left: 0;
-  right: 0;
-  z-index: 4;
-  border-radius: 0 0 8px 8px;
-}
-
-.terminal-search-bar input {
-  flex: 1;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 4px;
-  padding: 4px 8px;
-}
-
-.terminal-search-bar button {
-  background: var(--bg-active);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 4px;
-  cursor: pointer;
-  padding: 2px 8px;
 }
 
 button {
@@ -1452,4 +1327,252 @@ button {
   margin: 8px 0 0;
   font-size: 11.5px;
   color: var(--text-dim);
+}
+
+/* ── Grid wall ─────────────────────────────────────────────────────────────────────────────
+   Every terminal renders at the shared full-size geometry (--host-w × --host-h, the size a
+   maximized pane shows) and is displayed at --tile-scale. GridWall sets these variables. */
+
+.wall {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.wall-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.wall-title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.wall-scale {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wall-scale select {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  padding: 2px 6px;
+}
+
+.wall-scale-effective {
+  min-width: 3.5em;
+  color: var(--mono-accent);
+}
+
+/* Positioned: the containing block for a maximized tile, so it covers exactly the wall. */
+.wall-viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Deliberately NOT positioned. A maximized tile's containing block is then .wall-viewport, an
+   ancestor of this scroller, so the tile neither scrolls with the grid nor gets clipped by it.
+   The stable gutter keeps clientWidth constant whether or not the wall scrolls, so a scrollbar
+   appearing can't change the layout and make itself disappear again. */
+.wall-scroll {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.wall-grid {
+  display: grid;
+  justify-content: center;
+  align-content: start;
+}
+
+.wall-viewport.has-maximized .wall-scroll {
+  visibility: hidden;
+}
+
+.tile {
+  width: var(--tile-w);
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  /* Borders as shadows so they never change the tile's box. */
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.tile[data-status='working'] {
+  box-shadow: 0 0 0 1px var(--status-working);
+}
+
+.tile[data-status='waiting'] {
+  box-shadow:
+    0 0 0 2px var(--status-waiting),
+    0 0 12px var(--status-waiting);
+}
+
+.tile.tile-selected {
+  outline: 2px solid var(--mono-accent);
+  outline-offset: 2px;
+}
+
+.tile-header {
+  height: 26px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 10px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.tile-header .status-dot {
+  width: 7px;
+  height: 7px;
+}
+
+.tile-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tile-branch {
+  color: var(--mono-accent);
+  opacity: 0.8;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tile-max-button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tile-max-button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.tile-body {
+  position: relative;
+  width: var(--tile-w);
+  height: var(--tile-body-h);
+  overflow: hidden;
+}
+
+.tile-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--host-w);
+  height: var(--host-h);
+  transform: scale(var(--tile-scale));
+  transform-origin: 0 0;
+}
+
+.terminal-host {
+  width: 100%;
+  height: 100%;
+}
+
+/* Padding on .xterm itself: FitAddon subtracts it when computing cols/rows. */
+.terminal-host .xterm {
+  padding: 4px 6px;
+}
+
+.tile-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: pointer;
+}
+
+.tile-maximized {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  z-index: 10;
+  visibility: visible;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+}
+
+.tile-maximized .tile-body {
+  width: var(--host-w);
+  height: var(--host-h);
+}
+
+.tile-maximized .tile-host {
+  transform: none;
+}
+
+.tile-search {
+  position: absolute;
+  top: 6px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.tile-search input {
+  width: 220px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.tile-search button {
+  background: var(--bg-active);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 8px;
 }

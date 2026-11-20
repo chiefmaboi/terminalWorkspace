@@ -6,10 +6,12 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Ctrl+K', 'Open the command palette'],
   ['Ctrl+1 … Ctrl+9', 'Jump to workspace 1–9'],
   ['Ctrl+N', 'New workspace'],
-  ['Ctrl+F', 'Search inside the focused terminal'],
+  ['Click a tile', 'Select it and type into it'],
+  ['Double-click a tile', 'Maximize it'],
+  ['Ctrl+Shift+Enter', 'Maximize / restore the selected tile'],
+  ['Esc', 'Back to the grid (only when focus is not in a terminal)'],
+  ['Ctrl+F', 'Search the maximized terminal'],
   ['Click ⚙', 'Open settings'],
-  ['Drag pane header', 'Reorder terminals within a workspace'],
-  ['Drag column divider', 'Resize a pane column'],
   ['?', 'Toggle this overview']
 ]
 

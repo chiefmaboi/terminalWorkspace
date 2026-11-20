@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AppSettings, Terminal, TerminalRuntimeState, TerminalStatus, Workspace } from '../../../shared/types'
+import * as terminals from '../terminal/registry'
 
 interface AppState {
   loaded: boolean
@@ -9,6 +10,8 @@ interface AppState {
   settings: AppSettings
   openedWorkspaceIds: Set<string>
   focusedTerminalId: string | null
+  /** The tile shown full-size over the wall, or null for the grid view. */
+  maximizedTerminalId: string | null
   previews: Record<string, string>
   previewUpdatedAt: Record<string, number>
   hookServerPort: number | null
@@ -29,6 +32,9 @@ interface AppState {
   removeTerminal: (workspaceId: string, terminalId: string) => void
   reorderTerminals: (workspaceId: string, orderedTerminalIds: string[]) => void
   focusTerminal: (terminalId: string) => void
+  setMaximized: (terminalId: string | null) => void
+  /** Maximize the selected tile, or restore if one is maximized. */
+  toggleMaximized: () => void
 
   setSidebarWidth: (width: number) => void
   setFilePanelWidth: (width: number) => void
@@ -57,10 +63,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     notificationsEnabled: true,
     defaultStartCommand: 'claude',
     idleDebounceMs: 1200,
-    paneColFractions: []
+    paneColFractions: [],
+    tileScale: 'auto'
   },
   openedWorkspaceIds: new Set(),
   focusedTerminalId: null,
+  maximizedTerminalId: null,
   previews: {},
   previewUpdatedAt: {},
   hookServerPort: null,
@@ -95,6 +103,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeWorkspace: (id) =>
     set((state) => {
       const removedWorkspace = state.workspaces.find((w) => w.id === id)
+      const removedIds = removedWorkspace?.terminals.map((t) => t.id) ?? []
+      terminals.dispose(removedIds)
       const workspaces = state.workspaces.filter((w) => w.id !== id)
       const settings = { ...state.settings }
       if (settings.activeWorkspaceId === id) {
@@ -103,8 +113,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       const openedWorkspaceIds = new Set(state.openedWorkspaceIds)
       openedWorkspaceIds.delete(id)
-      const terminalMaps = pruneTerminalMaps(state, removedWorkspace?.terminals.map((t) => t.id) ?? [])
-      return { workspaces, settings, openedWorkspaceIds, ...terminalMaps }
+      const terminalMaps = pruneTerminalMaps(state, removedIds)
+      const maximizedTerminalId =
+        state.maximizedTerminalId && removedIds.includes(state.maximizedTerminalId) ? null : state.maximizedTerminalId
+      return { workspaces, settings, openedWorkspaceIds, maximizedTerminalId, ...terminalMaps }
     }),
 
   reorderWorkspaces: (orderedIds) => {
@@ -134,10 +146,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const focusedTerminalId = stillValid
         ? state.focusedTerminalId
         : ([...(workspace?.terminals ?? [])].sort((a, b) => a.order - b.order)[0]?.id ?? null)
+      // The wall is the active workspace: a maximized tile from another workspace can't stay up.
+      const maximizedStillValid = workspace?.terminals.some((t) => t.id === state.maximizedTerminalId)
       return {
         openedWorkspaceIds: new Set(state.openedWorkspaceIds).add(id),
         settings: { ...state.settings, activeWorkspaceId: id },
-        focusedTerminalId
+        focusedTerminalId,
+        maximizedTerminalId: maximizedStillValid ? state.maximizedTerminalId : null
       }
     })
     if (workspace) {
@@ -149,6 +164,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const workspace = get().workspaces.find((w) => w.id === id)
     if (workspace) {
       for (const terminal of workspace.terminals) void window.api.restartTerminal(terminal.id)
+      // Their PTYs are stopped, so reopening the workspace starts fresh terminals.
+      terminals.dispose(workspace.terminals.map((t) => t.id))
     }
     set((state) => {
       const openedWorkspaceIds = new Set(state.openedWorkspaceIds)
@@ -159,7 +176,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         settings.activeWorkspaceId = remaining[0]?.id ?? null
         void window.api.updateSettings({ activeWorkspaceId: settings.activeWorkspaceId })
       }
-      return { openedWorkspaceIds, settings }
+      const maximizedTerminalId = workspace?.terminals.some((t) => t.id === state.maximizedTerminalId)
+        ? null
+        : state.maximizedTerminalId
+      return { openedWorkspaceIds, settings, maximizedTerminalId }
     })
   },
 
@@ -183,10 +203,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   removeTerminal: (workspaceId, terminalId) => {
     void window.api.deleteTerminal(terminalId)
+    terminals.dispose([terminalId])
     set((state) => ({
       workspaces: state.workspaces.map((w) =>
         w.id === workspaceId ? { ...w, terminals: w.terminals.filter((t) => t.id !== terminalId) } : w
       ),
+      maximizedTerminalId: state.maximizedTerminalId === terminalId ? null : state.maximizedTerminalId,
       ...pruneTerminalMaps(state, [terminalId])
     }))
   },
@@ -214,7 +236,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     const workspace = get().workspaces.find((w) => w.terminals.some((t) => t.id === terminalId))
     if (!workspace) return
     get().openWorkspace(workspace.id)
-    set({ focusedTerminalId: terminalId })
+    // While something is maximized, focusing another terminal (toast or notification click)
+    // swaps which one is maximized instead of dropping back to the grid.
+    const { maximizedTerminalId } = get()
+    set({
+      focusedTerminalId: terminalId,
+      maximizedTerminalId: maximizedTerminalId && maximizedTerminalId !== terminalId ? terminalId : maximizedTerminalId
+    })
+  },
+
+  setMaximized: (terminalId) => {
+    if (terminalId) get().focusTerminal(terminalId)
+    set({ maximizedTerminalId: terminalId })
+  },
+
+  toggleMaximized: () => {
+    const { maximizedTerminalId, focusedTerminalId } = get()
+    if (maximizedTerminalId) set({ maximizedTerminalId: null })
+    else if (focusedTerminalId) get().setMaximized(focusedTerminalId)
   },
 
   setSidebarWidth: (width) => {
