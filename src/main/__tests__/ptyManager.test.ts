@@ -48,6 +48,7 @@ vi.mock('tree-kill', () => ({
 import {
   FLOW_HIGH_WATERMARK,
   FLOW_LOW_WATERMARK,
+  FLOW_WATCHDOG_MS,
   FLUSH_MS_BACKGROUND,
   FLUSH_MS_PRIORITY,
   MAX_PENDING_CHARS,
@@ -219,6 +220,109 @@ describe('PtyManager', () => {
       pm.start('t', '/p', '')
       expect(procs).toHaveLength(1)
       expect(proc.resume).toHaveBeenCalledTimes(1)
+    })
+
+    describe('watchdog', () => {
+      let warn: ReturnType<typeof vi.spyOn>
+      beforeEach(() => {
+        warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      })
+      afterEach(() => {
+        warn.mockRestore()
+      })
+
+      it('resumes a pty paused for FLOW_WATCHDOG_MS without any ack, with a warning', () => {
+        const { pm } = setup()
+        pm.start('t', '/p', '')
+        const proc = procs[0]
+        flood(pm, proc)
+
+        vi.advanceTimersByTime(FLOW_WATCHDOG_MS - 1)
+        expect(proc.resume).not.toHaveBeenCalled()
+        expect(warn).not.toHaveBeenCalled()
+
+        vi.advanceTimersByTime(1)
+        expect(proc.resume).toHaveBeenCalledTimes(1)
+        expect(warn).toHaveBeenCalledTimes(1)
+        expect(String(warn.mock.calls[0][0])).toContain('no ack')
+      })
+
+      it('treats outstanding output as lost, so the next small flush does not re-pause', () => {
+        const { pm } = setup()
+        pm.start('t', '/p', '')
+        const proc = procs[0]
+        flood(pm, proc)
+        vi.advanceTimersByTime(FLOW_WATCHDOG_MS)
+
+        proc.emitData('more')
+        vi.advanceTimersByTime(FLUSH_MS_BACKGROUND)
+        expect(proc.pause).toHaveBeenCalledTimes(1)
+      })
+
+      it('an ack that keeps it paused restarts the watchdog window', () => {
+        const { pm } = setup()
+        pm.start('t', '/p', '')
+        const proc = procs[0]
+        flood(pm, proc)
+
+        vi.advanceTimersByTime(3000)
+        pm.ack('t', 1) // progress, but nowhere near the low watermark
+        vi.advanceTimersByTime(FLOW_WATCHDOG_MS - 1)
+        expect(proc.resume).not.toHaveBeenCalled()
+
+        vi.advanceTimersByTime(1)
+        expect(proc.resume).toHaveBeenCalledTimes(1)
+      })
+
+      it('is disarmed by a normal resume and by stop()', async () => {
+        const { pm } = setup()
+        pm.start('a', '/p', '')
+        pm.start('b', '/p', '')
+        const [a, b] = procs
+        for (const proc of [a, b]) {
+          proc.emitData('x'.repeat(MAX_PENDING_CHARS))
+          proc.emitData('x'.repeat(MAX_PENDING_CHARS))
+          proc.emitData('x')
+        }
+        vi.advanceTimersByTime(FLUSH_MS_BACKGROUND)
+        expect(a.pause).toHaveBeenCalledTimes(1)
+        expect(b.pause).toHaveBeenCalledTimes(1)
+
+        pm.ack('a', 2 * MAX_PENDING_CHARS + 1) // normal resume
+        await pm.stop('b')
+        vi.advanceTimersByTime(FLOW_WATCHDOG_MS * 2)
+
+        expect(a.resume).toHaveBeenCalledTimes(1)
+        expect(b.resume).not.toHaveBeenCalled()
+        expect(warn).not.toHaveBeenCalled()
+      })
+    })
+
+    it('resetFlowControl resumes every paused pty and clears outstanding counts', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { pm } = setup()
+      pm.start('t', '/p', '')
+      pm.start('u', '/p', '')
+      const [t, u] = procs
+      for (const proc of [t, u]) {
+        proc.emitData('x'.repeat(MAX_PENDING_CHARS))
+        proc.emitData('x'.repeat(MAX_PENDING_CHARS))
+        proc.emitData('x')
+      }
+      vi.advanceTimersByTime(FLUSH_MS_BACKGROUND)
+      expect(t.pause).toHaveBeenCalledTimes(1)
+      expect(u.pause).toHaveBeenCalledTimes(1)
+
+      pm.resetFlowControl('test')
+      expect(t.resume).toHaveBeenCalledTimes(1)
+      expect(u.resume).toHaveBeenCalledTimes(1)
+
+      // Counts were cleared: a small follow-up flush stays unpaused, and the watchdog is gone.
+      t.emitData('x')
+      vi.advanceTimersByTime(FLOW_WATCHDOG_MS * 2)
+      expect(t.pause).toHaveBeenCalledTimes(1)
+      expect(t.resume).toHaveBeenCalledTimes(1)
+      warn.mockRestore()
     })
 
     it('ignores acks for unknown terminals and non-positive counts', () => {

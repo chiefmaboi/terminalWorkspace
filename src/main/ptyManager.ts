@@ -27,6 +27,9 @@ export const MAX_PENDING_CHARS = 256 * 1024
 // bound; it resumes once the renderer has caught up to the low watermark.
 export const FLOW_HIGH_WATERMARK = 512 * 1024
 export const FLOW_LOW_WATERMARK = 128 * 1024
+// A PTY that stays paused this long without a single ack is resumed anyway (with a warning):
+// acks are only ever lost through renderer failure, and a stuck pause silently freezes the agent.
+export const FLOW_WATCHDOG_MS = 5000
 
 interface Session {
   proc: pty.IPty
@@ -37,6 +40,7 @@ interface Session {
   flushTimer: NodeJS.Timeout | null
   unacked: number
   paused: boolean
+  watchdog: NodeJS.Timeout | null
 }
 
 export class PtyManager {
@@ -84,7 +88,8 @@ export class PtyManager {
       pendingChars: 0,
       flushTimer: null,
       unacked: 0,
-      paused: false
+      paused: false,
+      watchdog: null
     }
     this.sessions.set(terminalId, session)
 
@@ -132,6 +137,23 @@ export class PtyManager {
     if (!session || !(chars > 0)) return
     session.unacked = Math.max(0, session.unacked - chars)
     if (session.unacked <= FLOW_LOW_WATERMARK) this.resumeIfPaused(session)
+    // Still paused but the renderer is making progress: restart the watchdog window.
+    else if (session.paused) this.armWatchdog(session)
+  }
+
+  /**
+   * Forget all outstanding output and resume every paused PTY. Called when the renderer reloads,
+   * crashes or hangs: its pending acks will never arrive, so waiting for them would leave the
+   * PTYs paused (and the agents in them blocked) indefinitely.
+   */
+  resetFlowControl(reason: string): void {
+    let resumed = 0
+    for (const session of this.sessions.values()) {
+      session.unacked = 0
+      if (session.paused) resumed++
+      this.resumeIfPaused(session)
+    }
+    if (resumed > 0) console.warn(`[pty] flow control reset (${reason}): resumed ${resumed} paused pty(s)`)
   }
 
   private isCurrent(session: Session): boolean {
@@ -165,10 +187,30 @@ export class PtyManager {
     if (!session.paused && session.unacked > FLOW_HIGH_WATERMARK) {
       session.paused = true
       session.proc.pause()
+      this.armWatchdog(session)
     }
   }
 
+  private armWatchdog(session: Session): void {
+    if (session.watchdog) clearTimeout(session.watchdog)
+    session.watchdog = setTimeout(() => {
+      session.watchdog = null
+      if (!this.isCurrent(session) || !session.paused) return
+      console.warn(
+        `[pty] ${session.terminalId}: paused ${FLOW_WATCHDOG_MS}ms with no ack ` +
+          `(${session.unacked} chars outstanding), resuming`
+      )
+      // Treat the outstanding output as lost; otherwise the next flush would pause again at once.
+      session.unacked = 0
+      this.resumeIfPaused(session)
+    }, FLOW_WATCHDOG_MS)
+  }
+
   private resumeIfPaused(session: Session): void {
+    if (session.watchdog) {
+      clearTimeout(session.watchdog)
+      session.watchdog = null
+    }
     if (!session.paused) return
     session.paused = false
     session.proc.resume()
@@ -177,8 +219,10 @@ export class PtyManager {
   private clearTimers(session: Session): void {
     if (session.idleTimer) clearTimeout(session.idleTimer)
     if (session.flushTimer) clearTimeout(session.flushTimer)
+    if (session.watchdog) clearTimeout(session.watchdog)
     session.idleTimer = null
     session.flushTimer = null
+    session.watchdog = null
   }
 
   private scheduleAutoIdle(session: Session): void {

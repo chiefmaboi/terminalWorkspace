@@ -238,7 +238,12 @@ function createWindow(): void {
   })
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('[renderer] render-process-gone', details)
+    ptyManager.resetFlowControl(`renderer gone: ${details.reason}`)
   })
+  // Flow-control recovery: a reloading or hung renderer will never ack the output it was sent.
+  // 'did-start-loading' also fires for the initial load, where the reset is a harmless no-op.
+  mainWindow.webContents.on('did-start-loading', () => ptyManager.resetFlowControl('renderer reload'))
+  mainWindow.on('unresponsive', () => ptyManager.resetFlowControl('renderer unresponsive'))
   if (is.dev) {
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
