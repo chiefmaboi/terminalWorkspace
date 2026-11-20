@@ -45,6 +45,11 @@ export default function App(): React.JSX.Element {
     document.documentElement.dataset.theme = settings.theme
   }, [settings.theme])
 
+  // Main flushes this terminal's output at the fast rate and every other one at the slow rate.
+  useEffect(() => {
+    window.api.ptySetPriority(focusedTerminalId)
+  }, [focusedTerminalId])
+
   useEffect(() => {
     const active = workspaces.find((w) => w.id === settings.activeWorkspaceId)
     document.title = active ? `${active.name}: Pitwall` : 'Pitwall'

@@ -60,6 +60,10 @@ const api = {
   ptyInput: (id: string, data: string): void => ipcRenderer.send(IPC.ptyInput, id, data),
   ptyResize: (id: string, cols: number, rows: number): void =>
     ipcRenderer.send(IPC.ptyResize, id, cols, rows),
+  /** Flow control: report that `chars` characters of pty:data were parsed by xterm. */
+  ptyAck: (id: string, chars: number): void => ipcRenderer.send(IPC.ptyAck, id, chars),
+  /** Which terminal's output should flush at the fast rate (null = none). */
+  ptySetPriority: (id: string | null): void => ipcRenderer.send(IPC.ptySetPriority, id),
 
   onPtyData: (callback: (id: string, data: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: { id: string; data: string }): void =>

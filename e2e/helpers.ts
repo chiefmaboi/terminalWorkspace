@@ -31,12 +31,26 @@ export async function launchApp(): Promise<LaunchedApp> {
     args: [join(__dirname, '..', 'out', 'main', 'index.js')],
     env
   })
-  const window = await app.firstWindow()
+  const window = await appWindow(app)
   // 'domcontentloaded' fires before our SPA's React tree has actually mounted; wait for a
   // real rendered element instead of racing the app's own async startup (IPC round trip for
   // getWorkspaces() + getHookServerInfo() in the store's load()).
   await window.locator('.app-shell').waitFor({ state: 'attached', timeout: 30_000 })
   return { app, window, userDataDir }
+}
+
+// An unpackaged launch counts as dev mode, so the main process also opens a detached DevTools
+// window. firstWindow() returns whichever window appears first, which is sometimes DevTools,
+// and then nothing the tests wait for ever renders. Pick the window that loaded the app's own
+// file:// page instead.
+async function appWindow(app: ElectronApplication): Promise<Page> {
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    const found = app.windows().find((w) => w.url().startsWith('file:'))
+    if (found) return found
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  throw new Error(`no app window; open windows: ${app.windows().map((w) => w.url()).join(', ')}`)
 }
 
 export async function closeApp({ app, userDataDir }: LaunchedApp): Promise<void> {

@@ -91,7 +91,11 @@ const statusManager = new StatusManager()
 const ptyManager = new PtyManager(
   statusManager,
   (terminalId, data) => mainWindow?.webContents.send(IPC.ptyData, { id: terminalId, data }),
-  (terminalId, exitCode) => mainWindow?.webContents.send(IPC.ptyExit, { id: terminalId, exitCode }),
+  (terminalId, exitCode) => {
+    // The session's idle timer died with it, so a 'working' status would otherwise stick forever.
+    statusManager.markIdle(terminalId)
+    mainWindow?.webContents.send(IPC.ptyExit, { id: terminalId, exitCode })
+  },
   () => store.getState().settings.idleDebounceMs
 )
 
@@ -213,7 +217,11 @@ function createWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // The window spends long stretches hidden in the tray while sessions keep running.
+      // Chromium's background timer throttling would slow xterm's write processing to a crawl
+      // there, stalling flow-control acks and pausing the PTYs of agents still working.
+      backgroundThrottling: false
     }
   })
 
@@ -630,6 +638,14 @@ function registerIpcHandlers(): void {
 
   ipcMain.on(IPC.ptyResize, (_event, terminalId: string, cols: number, rows: number) => {
     ptyManager.resize(terminalId, cols, rows)
+  })
+
+  ipcMain.on(IPC.ptyAck, (_event, terminalId: string, chars: number) => {
+    ptyManager.ack(terminalId, chars)
+  })
+
+  ipcMain.on(IPC.ptySetPriority, (_event, terminalId: string | null) => {
+    ptyManager.setPriority(typeof terminalId === 'string' ? terminalId : null)
   })
 
   ipcMain.handle(IPC.hookServerInfo, () => ({ port: HOOK_SERVER_PORT }))

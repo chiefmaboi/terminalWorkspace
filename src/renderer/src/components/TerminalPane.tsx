@@ -173,6 +173,7 @@ const TerminalPane = forwardRef<HTMLDivElement, Props>(function TerminalPane(
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const startedRef = useRef(false)
+  const exitedRef = useRef(false)
   const rendererReadyRef = useRef(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -259,15 +260,31 @@ const TerminalPane = forwardRef<HTMLDivElement, Props>(function TerminalPane(
     })
 
     const dataDispose = term.onData((data) => {
+      if (exitedRef.current) {
+        // The process exited: Enter starts a fresh one, any other key is swallowed.
+        if (data.includes('\r')) {
+          exitedRef.current = false
+          void window.api.ptyStart(terminalId, term.cols, term.rows).then(() => markPtyStarted(terminalId))
+        }
+        return
+      }
       window.api.ptyInput(terminalId, data)
     })
 
     let previewTimer: ReturnType<typeof setTimeout> | null = null
     const unsubscribePtyData = window.api.onPtyData((id, data) => {
       if (id !== terminalId) return
-      term.write(data)
+      // Ack once xterm has actually parsed the chunk; main pauses the PTY when too much output
+      // is outstanding (see FLOW_HIGH_WATERMARK in ptyManager).
+      term.write(data, () => window.api.ptyAck(terminalId, data.length))
       if (previewTimer) clearTimeout(previewTimer)
       previewTimer = setTimeout(() => setPreview(terminalId, extractPreview(term)), 500)
+    })
+
+    const unsubscribePtyExit = window.api.onPtyExit((id, exitCode) => {
+      if (id !== terminalId) return
+      exitedRef.current = true
+      term.write(`\r\n\x1b[2m[process exited with code ${exitCode}, press Enter to restart]\x1b[0m\r\n`)
     })
 
     // The green "active" ring should follow real keyboard focus, not just the last sidebar
@@ -294,6 +311,7 @@ const TerminalPane = forwardRef<HTMLDivElement, Props>(function TerminalPane(
       if (previewTimer) clearTimeout(previewTimer)
       dataDispose.dispose()
       unsubscribePtyData()
+      unsubscribePtyExit()
       resizeObserver.disconnect()
       containerRef.current?.removeEventListener('keydown', keydownHandler)
       containerRef.current?.removeEventListener('focusin', focusHandler)

@@ -113,6 +113,8 @@ export const IPC = {
   ptyResize: 'pty:resize',
   ptyData: 'pty:data',
   ptyExit: 'pty:exit',
+  ptyAck: 'pty:ack',
+  ptySetPriority: 'pty:setPriority',
 
   statusChanged: 'status:changed',
   gitBranchChanged: 'git:branchChanged',
