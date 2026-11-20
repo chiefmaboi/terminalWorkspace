@@ -5,8 +5,10 @@ import {
   TILE_GAP_PX,
   TILE_HEADER_PX,
   WALL_PADDING_PX,
+  ZOOM_FRACTION,
   computeWallLayout,
-  gridHeight
+  gridHeight,
+  zoomRect
 } from '../wallLayout'
 import type { WallGeometry } from '../wallLayout'
 
@@ -24,6 +26,24 @@ const G = geometry(1600, 900)
 function fitsWidth(cols: number, tileWidth: number, g: WallGeometry): boolean {
   return cols * tileWidth + (cols - 1) * TILE_GAP_PX <= g.availWidth
 }
+
+describe('zoomRect', () => {
+  it('is ZOOM_FRACTION of the wall, centered, in whole pixels', () => {
+    const r = zoomRect(1640, 1004)
+    expect(r.width).toBe(Math.round(1640 * ZOOM_FRACTION))
+    expect(r.height).toBe(Math.round(1004 * ZOOM_FRACTION))
+    for (const v of Object.values(r)) expect(Number.isInteger(v)).toBe(true)
+    // Centered to within a pixel on both axes.
+    expect(Math.abs(r.left - (1640 - r.left - r.width))).toBeLessThanOrEqual(1)
+    expect(Math.abs(r.top - (1004 - r.top - r.height))).toBeLessThanOrEqual(1)
+  })
+
+  it('always leaves room for the header plus at least one body pixel', () => {
+    const r = zoomRect(0, 0)
+    expect(r.width).toBeGreaterThanOrEqual(1)
+    expect(r.height).toBeGreaterThan(TILE_HEADER_PX)
+  })
+})
 
 describe('computeWallLayout', () => {
   it('caps a lone tile at SCALE_MAX', () => {

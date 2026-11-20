@@ -8,6 +8,31 @@ export const TILE_GAP_PX = 10
 export const WALL_PADDING_PX = 10
 /** Tile header bar (title, status, branch). Not scaled, so it stays readable at any scale. */
 export const TILE_HEADER_PX = 26
+/** The zoomed pane floats centered over the wall at this fraction of the wall's width/height. */
+export const ZOOM_FRACTION = 0.88
+
+export interface ZoomRect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/**
+ * Where the zoomed pane sits inside a wall viewport of the given size: ZOOM_FRACTION of each
+ * dimension, centered, in whole pixels. The zoomed pane's body (this minus the header) is also
+ * the shared terminal geometry, so zooming in or out never changes any terminal's cols/rows.
+ */
+export function zoomRect(viewportWidth: number, viewportHeight: number): ZoomRect {
+  const width = Math.max(1, Math.round(viewportWidth * ZOOM_FRACTION))
+  const height = Math.max(TILE_HEADER_PX + 1, Math.round(viewportHeight * ZOOM_FRACTION))
+  return {
+    left: Math.floor((viewportWidth - width) / 2),
+    top: Math.floor((viewportHeight - height) / 2),
+    width,
+    height
+  }
+}
 
 export interface WallLayout {
   cols: number
@@ -20,7 +45,7 @@ export interface WallLayout {
 }
 
 export interface WallGeometry {
-  /** Full-size terminal body (exactly what a maximized pane shows). Shared by every terminal. */
+  /** Full-size terminal body (exactly what the zoomed pane shows). Shared by every terminal. */
   hostWidth: number
   hostHeight: number
   /** Space the grid of tiles can occupy without scrolling (wall minus padding and scrollbar). */

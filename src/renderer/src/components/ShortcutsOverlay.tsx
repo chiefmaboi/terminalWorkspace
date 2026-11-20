@@ -7,10 +7,11 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Ctrl+1 … Ctrl+9', 'Jump to workspace 1–9'],
   ['Ctrl+N', 'New workspace'],
   ['Click a tile', 'Select it and type into it'],
-  ['Double-click a tile', 'Maximize it'],
-  ['Ctrl+Shift+Enter', 'Maximize / restore the selected tile'],
-  ['Esc', 'Back to the grid (only when focus is not in a terminal)'],
-  ['Ctrl+F', 'Search the maximized terminal'],
+  ['Double-click a tile', 'Zoom it over the wall'],
+  ['Ctrl+Shift+Enter', 'Zoom / restore the selected tile'],
+  ['Click the dimmed wall', 'Restore the zoomed tile'],
+  ['Esc', 'Restore (only when focus is not in a terminal)'],
+  ['Ctrl+F', 'Search the zoomed terminal'],
   ['Click ⚙', 'Open settings'],
   ['?', 'Toggle this overview']
 ]

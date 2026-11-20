@@ -1406,32 +1406,48 @@ button {
   align-content: start;
 }
 
-.wall-viewport.has-maximized .wall-scroll {
-  visibility: hidden;
+/* Every tile sits in a slot that keeps its grid cell, so lifting the tile out into the zoomed
+   pane never reflows the rest of the wall. */
+.tile-slot {
+  width: var(--tile-w);
+  height: calc(var(--tile-body-h) + 26px);
 }
 
+/* No overflow:hidden here (the body clips its own corners), so the ring's outer glow and the
+   selection outline are not cut off. */
 .tile {
-  width: var(--tile-w);
+  position: relative;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   border-radius: 8px;
-  overflow: hidden;
   background: var(--bg-elevated);
-  /* Borders as shadows so they never change the tile's box. */
+}
+
+/* Status/selection ring as its own positioned layer. z-index 15 puts it above .wall-dim (10)
+   so background tiles keep showing their state while a pane is zoomed; the tile content stays
+   in the normal layer below the dim. */
+.tile-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  border-radius: 8px;
+  pointer-events: none;
   box-shadow: 0 0 0 1px var(--border);
 }
 
-.tile[data-status='working'] {
+.tile[data-status='working'] .tile-ring {
   box-shadow: 0 0 0 1px var(--status-working);
 }
 
-.tile[data-status='waiting'] {
+.tile[data-status='waiting'] .tile-ring {
   box-shadow:
     0 0 0 2px var(--status-waiting),
     0 0 12px var(--status-waiting);
 }
 
-.tile.tile-selected {
+.tile.tile-selected .tile-ring {
   outline: 2px solid var(--mono-accent);
   outline-offset: 2px;
 }
@@ -1446,7 +1462,9 @@ button {
   font-family: var(--mono-font);
   font-size: 11px;
   color: var(--text-dim);
+  background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
   flex-shrink: 0;
   user-select: none;
 }
@@ -1496,6 +1514,7 @@ button {
   width: var(--tile-w);
   height: var(--tile-body-h);
   overflow: hidden;
+  border-radius: 0 0 8px 8px;
 }
 
 .tile-host {
@@ -1525,24 +1544,49 @@ button {
   cursor: pointer;
 }
 
-.tile-maximized {
+.wall-dim {
   position: absolute;
   inset: 0;
-  width: auto;
   z-index: 10;
-  visibility: visible;
-  border-radius: 0;
-  box-shadow: none;
-  outline: none;
+  background: rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease-out;
 }
 
-.tile-maximized .tile-body {
+.wall-dim.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The zoomed pane: lifted out of its slot (whose static ancestors make .wall-viewport the
+   containing block) and centered over the dimmed wall. Its body is exactly the shared terminal
+   geometry, so the terminal shows at scale 1 with the same cols/rows it has as a tile. */
+.tile-zoomed {
+  position: absolute;
+  left: var(--zoom-left);
+  top: var(--zoom-top);
+  width: var(--zoom-w);
+  height: var(--zoom-h);
+  z-index: 20;
+  transform-origin: 0 0;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+
+.tile-zoomed .tile-body {
   width: var(--host-w);
   height: var(--host-h);
 }
 
-.tile-maximized .tile-host {
+.tile-zoomed .tile-host {
   transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wall-dim {
+    transition: none;
+  }
 }
 
 .tile-search {

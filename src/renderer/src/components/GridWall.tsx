@@ -4,7 +4,7 @@ import { TILE_SCALE_MODES } from '../../../shared/types'
 import type { TileScaleMode, Workspace } from '../../../shared/types'
 import { useAppStore } from '../store/useAppStore'
 import * as terminals from '../terminal/registry'
-import { TILE_GAP_PX, TILE_HEADER_PX, WALL_PADDING_PX, computeWallLayout } from '../lib/wallLayout'
+import { TILE_GAP_PX, TILE_HEADER_PX, WALL_PADDING_PX, computeWallLayout, zoomRect } from '../lib/wallLayout'
 import Tile from './Tile'
 
 /** Window resizes are coalesced before the shared terminal size (and every PTY) changes. */
@@ -17,7 +17,7 @@ interface Props {
 }
 
 interface Measured {
-  /** Wall viewport: also the maximized pane's size, hence the shared terminal geometry. */
+  /** Wall viewport: the zoomed pane is sized from it, and the terminal geometry from that. */
   viewportWidth: number
   viewportHeight: number
   /** Scroll area inner size (scrollbar gutter excluded) available to the tile grid. */
@@ -40,7 +40,8 @@ export default function GridWall({ workspace, actions }: Props): React.JSX.Eleme
   const tileScale = useAppStore((s) => s.settings.tileScale)
   const updateAppSettings = useAppStore((s) => s.updateAppSettings)
   const focusedTerminalId = useAppStore((s) => s.focusedTerminalId)
-  const maximizedTerminalId = useAppStore((s) => s.maximizedTerminalId)
+  const zoomedTerminalId = useAppStore((s) => s.maximizedTerminalId)
+  const setMaximized = useAppStore((s) => s.setMaximized)
   const viewportRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [measured, setMeasured] = useState<Measured | null>(null)
@@ -74,8 +75,11 @@ export default function GridWall({ workspace, actions }: Props): React.JSX.Eleme
 
   const tiles = useMemo(() => [...workspace.terminals].sort((a, b) => a.order - b.order), [workspace.terminals])
 
-  const hostWidth = measured?.viewportWidth ?? 0
-  const hostHeight = Math.max(0, (measured?.viewportHeight ?? 0) - TILE_HEADER_PX)
+  // Shared terminal geometry = the zoomed pane's body. Every terminal always has exactly these
+  // cols/rows, tiled or zoomed, so zoom/restore never resizes a PTY.
+  const zoom = zoomRect(measured?.viewportWidth ?? 0, measured?.viewportHeight ?? 0)
+  const hostWidth = measured ? zoom.width : 0
+  const hostHeight = measured ? zoom.height - TILE_HEADER_PX : 0
 
   const layout = useMemo(
     () =>
@@ -101,7 +105,11 @@ export default function GridWall({ workspace, actions }: Props): React.JSX.Eleme
     '--host-h': `${hostHeight}px`,
     '--tile-w': `${layout.tileWidth}px`,
     '--tile-body-h': `${layout.tileBodyHeight}px`,
-    '--tile-scale': String(layout.scale)
+    '--tile-scale': String(layout.scale),
+    '--zoom-left': `${zoom.left}px`,
+    '--zoom-top': `${zoom.top}px`,
+    '--zoom-w': `${zoom.width}px`,
+    '--zoom-h': `${zoom.height}px`
   } as React.CSSProperties
 
   return (
@@ -127,11 +135,7 @@ export default function GridWall({ workspace, actions }: Props): React.JSX.Eleme
         </label>
         {actions}
       </div>
-      <div
-        className={`wall-viewport${maximizedTerminalId ? ' has-maximized' : ''}`}
-        ref={viewportRef}
-        style={vars}
-      >
+      <div className={`wall-viewport${zoomedTerminalId ? ' has-zoomed' : ''}`} ref={viewportRef} style={vars}>
         <div className="wall-scroll" ref={scrollRef}>
           {measured && (
             <div
@@ -148,12 +152,20 @@ export default function GridWall({ workspace, actions }: Props): React.JSX.Eleme
                   key={terminal.id}
                   terminal={terminal}
                   selected={terminal.id === focusedTerminalId}
-                  maximized={terminal.id === maximizedTerminalId}
+                  zoomed={terminal.id === zoomedTerminalId}
                 />
               ))}
             </div>
           )}
         </div>
+        {/* Dims the live wall behind the zoomed pane (no blur: re-blurring constantly updating
+            tiles every frame is expensive). Clicking it restores. Tile status rings stack above
+            it; the zoomed pane above those. */}
+        <div
+          className={`wall-dim${zoomedTerminalId ? ' visible' : ''}`}
+          onClick={() => setMaximized(null)}
+          aria-hidden="true"
+        />
       </div>
     </div>
   )

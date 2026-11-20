@@ -241,7 +241,7 @@ test.describe('real sessions under load', () => {
           fill.hostPx = await hostWidth()
         }
         await t.locator('.tile-overlay').dblclick()
-        await expect(t).toHaveClass(/tile-maximized/)
+        await expect(t).toHaveClass(/tile-zoomed/)
         if (round === 3) {
           await window.waitForTimeout(300)
           fill.maximizedScreenPx = await screenWidth()
@@ -250,7 +250,7 @@ test.describe('real sessions under load', () => {
         }
         await window.waitForTimeout(1500)
         await window.keyboard.press('Control+Shift+Enter')
-        await expect(window.locator('.tile-maximized')).toHaveCount(0)
+        await expect(window.locator('.tile-zoomed')).toHaveCount(0)
       }
       await window.waitForTimeout(2000)
     }
