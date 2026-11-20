@@ -1622,33 +1622,6 @@ button {
   color: var(--text);
 }
 
-.hook-badge {
-  font-size: 10.5px;
-  line-height: 1;
-  padding: 3px 7px;
-  border-radius: 10px;
-  border: 1px solid currentColor;
-}
-
-.hook-badge.state-installed {
-  color: var(--status-working);
-  background: color-mix(in srgb, var(--status-working) 12%, transparent);
-}
-
-.hook-badge.state-outdated {
-  color: var(--status-waiting);
-  background: color-mix(in srgb, var(--status-waiting) 12%, transparent);
-}
-
-.hook-badge.state-missing {
-  color: var(--text-dim);
-}
-
-.hook-badge.state-error {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
 .hook-item-path {
   margin-top: 4px;
   font-family: var(--mono-font);

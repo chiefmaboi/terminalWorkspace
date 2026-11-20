@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AgentHookStatus, DiffLine, HookAction, HookPlan, InstallableAgent } from '../../../shared/types'
 
-const STATE_LABEL: Record<AgentHookStatus['state'], string> = {
-  installed: 'Installed',
-  outdated: 'Needs update',
-  missing: 'Not installed',
-  error: 'Unreadable config'
-}
 
 /** Long unchanged stretches collapse to a marker so the actual change stays readable. */
 function collapse(diff: DiffLine[], context = 3): Array<DiffLine | { kind: 'gap'; count: number }> {
@@ -162,9 +156,10 @@ export default function AgentHooks({ connected }: { connected: boolean }): React
           {statuses.map((s) => (
             <div key={s.agent} className="hook-item" data-agent={s.agent} data-state={s.state}>
               <div className="hook-item-main">
+                {/* No status pill: the button says it (Install / Update / Remove), and an
+                    unreadable config shows its error in place of the path. */}
                 <div className="hook-item-title">
                   <span className="hook-item-name">{s.label}</span>
-                  <span className={`hook-badge state-${s.state}`}>{STATE_LABEL[s.state]}</span>
                 </div>
                 <div className={`hook-item-path${s.error ? ' has-error' : ''}`} title={s.error ?? s.configPath}>
                   {s.error ?? s.displayPath}
