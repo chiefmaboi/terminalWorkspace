@@ -109,6 +109,8 @@ export interface AgentHookStatus {
   agent: InstallableAgent
   label: string
   configPath: string
+  /** configPath with the home folder shortened to ~, for display. */
+  displayPath: string
   state: 'installed' | 'outdated' | 'missing' | 'error'
   error?: string
 }

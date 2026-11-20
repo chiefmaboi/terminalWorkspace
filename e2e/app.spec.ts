@@ -924,7 +924,7 @@ test.describe('agent hooks', () => {
 
   const openHooksSettings = async (window: Page): Promise<void> => {
     await window.locator('button[title="Settings"]').click()
-    await expect(window.locator('.agent-hook-row')).toHaveCount(2)
+    await expect(window.locator('.hook-item')).toHaveCount(2)
   }
   const closeSettings = (window: Page): Promise<void> =>
     window.locator('.settings-modal .modal-actions button.primary', { hasText: 'Done' }).click()
@@ -934,7 +934,7 @@ test.describe('agent hooks', () => {
       const { window } = ctx
       const configPath = agent === 'claude' ? join(claudeDir, 'settings.json') : join(codexDir, 'hooks.json')
       const userGroup = agent === 'claude' ? userClaudeHook : userCodexGroup
-      const row = window.locator(`.agent-hook-row[data-agent="${agent}"]`)
+      const row = window.locator(`.hook-item[data-agent="${agent}"]`)
       await openHooksSettings(window)
       await expect(row).toHaveAttribute('data-state', 'missing')
 

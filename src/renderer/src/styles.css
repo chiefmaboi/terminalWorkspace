@@ -801,7 +801,7 @@ button {
 /* Settings modal */
 
 .settings-modal {
-  width: 460px;
+  width: min(540px, calc(100vw - 48px));
 }
 
 .theme-swatches {
@@ -869,50 +869,6 @@ button {
 
 .checkbox-label input {
   width: auto;
-}
-
-.settings-updates {
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-
-.settings-updates-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.settings-button-group {
-  display: flex;
-  gap: 6px;
-}
-
-.settings-version {
-  font-family: var(--mono-font);
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.settings-updates-row button {
-  background: var(--bg-active);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 4px;
-  padding: 5px 12px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.settings-updates-row button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.settings-update-status {
-  margin: 8px 0 0;
-  font-size: 11.5px;
-  color: var(--text-dim);
 }
 
 /* ── Grid wall ─────────────────────────────────────────────────────────────────────────────
@@ -1485,51 +1441,6 @@ button {
 
 /* ── Agent hooks (Settings) ───────────────────────────────────────────────────────────── */
 
-.agent-hook-row {
-  display: grid;
-  grid-template-columns: 96px 110px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.agent-hook-name {
-  font-weight: 600;
-  color: var(--text);
-}
-
-.agent-hook-state {
-  font-family: var(--mono-font);
-  font-size: 11px;
-}
-
-.agent-hook-state.state-installed {
-  color: var(--status-working);
-}
-
-.agent-hook-state.state-outdated {
-  color: var(--status-waiting);
-}
-
-.agent-hook-state.state-missing {
-  color: var(--text-dim);
-}
-
-.agent-hook-state.state-error {
-  color: var(--danger);
-}
-
-.agent-hook-path {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-  font-family: var(--mono-font);
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
 .modal.hook-review {
   width: min(760px, calc(100vw - 80px));
 }
@@ -1573,4 +1484,196 @@ button {
 .hook-diff .diff-gap {
   color: var(--text-dim);
   font-style: italic;
+}
+
+/* ── Settings layout ─────────────────────────────────────────────────────────────────── */
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-modal h2 + .settings-section {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 6px;
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+}
+
+.settings-section-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-modal .settings-section label {
+  margin: 0;
+}
+
+.settings-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.settings-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.settings-button {
+  background: var(--bg-active);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-button:hover {
+  border-color: var(--mono-accent);
+}
+
+.settings-button.primary-ish {
+  border-color: color-mix(in srgb, var(--mono-accent) 60%, var(--border));
+  color: var(--mono-accent);
+}
+
+.settings-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.settings-pill .status-dot {
+  width: 7px;
+  height: 7px;
+  animation: none;
+  box-shadow: none;
+}
+
+.settings-pill.live {
+  color: var(--text);
+}
+
+.hook-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.hook-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg);
+}
+
+.hook-item + .hook-item {
+  border-top: 1px solid var(--border);
+}
+
+.hook-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.hook-item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hook-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hook-badge {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 10px;
+  border: 1px solid currentColor;
+}
+
+.hook-badge.state-installed {
+  color: var(--status-working);
+  background: color-mix(in srgb, var(--status-working) 12%, transparent);
+}
+
+.hook-badge.state-outdated {
+  color: var(--status-waiting);
+  background: color-mix(in srgb, var(--status-waiting) 12%, transparent);
+}
+
+.hook-badge.state-missing {
+  color: var(--text-dim);
+}
+
+.hook-badge.state-error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.hook-item-path {
+  margin-top: 4px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hook-item-path.has-error {
+  color: var(--danger);
+  white-space: normal;
+  font-family: inherit;
+}
+
+.modal-actions.settings-footer {
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-footer .settings-version {
+  font-size: 11.5px;
+  color: var(--text-dim);
 }

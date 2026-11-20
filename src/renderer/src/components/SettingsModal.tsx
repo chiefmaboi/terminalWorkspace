@@ -90,8 +90,10 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <h2>Settings</h2>
 
-        <label>
-          Theme
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <h3>Appearance</h3>
+          </div>
           <div className="theme-swatches">
             {THEME_OPTIONS.map((opt) => (
               <button
@@ -108,61 +110,65 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
               </button>
             ))}
           </div>
-        </label>
+        </section>
 
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={settings.notificationsEnabled}
-            onChange={(e) => updateAppSettings({ notificationsEnabled: e.target.checked })}
-          />
-          Show a Windows notification when a session is waiting for input
-        </label>
-
-        <label>
-          Default start command for new workspaces
-          <input
-            value={defaultStartCommand}
-            onChange={(e) => setDefaultStartCommand(e.target.value)}
-            onBlur={commitStartCommand}
-            onKeyDown={(e) => e.key === 'Enter' && commitStartCommand()}
-          />
-        </label>
-
-        <label>
-          Auto-idle after this many seconds of silent output
-          <input
-            type="number"
-            min={1}
-            max={60}
-            value={idleSeconds}
-            onChange={(e) => setIdleSeconds(Number(e.target.value))}
-            onBlur={commitIdleSeconds}
-            onKeyDown={(e) => e.key === 'Enter' && commitIdleSeconds()}
-          />
-        </label>
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <h3>Terminals</h3>
+          </div>
+          <div className="settings-fields">
+            <label>
+              Default start command for new terminals
+              <input
+                value={defaultStartCommand}
+                onChange={(e) => setDefaultStartCommand(e.target.value)}
+                onBlur={commitStartCommand}
+                onKeyDown={(e) => e.key === 'Enter' && commitStartCommand()}
+              />
+            </label>
+            <label>
+              Mark idle after this many seconds of silent output
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={idleSeconds}
+                onChange={(e) => setIdleSeconds(Number(e.target.value))}
+                onBlur={commitIdleSeconds}
+                onKeyDown={(e) => e.key === 'Enter' && commitIdleSeconds()}
+              />
+            </label>
+          </div>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.notificationsEnabled}
+              onChange={(e) => updateAppSettings({ notificationsEnabled: e.target.checked })}
+            />
+            Desktop notification when a terminal is waiting for input
+          </label>
+        </section>
 
         <AgentHooks connected={hooksConnected} />
 
-        <div className="settings-updates">
-          <div className="settings-updates-row">
-            <span className="settings-version">Backup</span>
-            <div className="settings-button-group">
-              <button onClick={() => void handleExport()}>Export…</button>
-              <button onClick={() => void handleImport()}>Import…</button>
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <h3>Backup</h3>
+            <div className="settings-actions">
+              <button className="settings-button" onClick={() => void handleExport()}>
+                Export…
+              </button>
+              <button className="settings-button" onClick={() => void handleImport()}>
+                Import…
+              </button>
             </div>
           </div>
-          <p className="settings-update-status">Workspaces, plus theme &amp; preferences.</p>
-          {dataMessage && <p className="settings-update-status">{dataMessage}</p>}
-        </div>
+          <p className="settings-hint">Workspaces and terminals, plus theme and preferences, as one JSON file.</p>
+          {dataMessage && <p className="settings-note">{dataMessage}</p>}
+        </section>
 
-        <div className="settings-updates">
-          <div className="settings-updates-row">
-            <span className="settings-version">Pitwall {version ? `v${version}` : ''}</span>
-          </div>
-        </div>
-
-        <div className="modal-actions">
+        <div className="modal-actions settings-footer">
+          <span className="settings-version">Pitwall {version ? `v${version}` : ''}</span>
           <button className="primary" onClick={onClose}>
             Done
           </button>

@@ -60,7 +60,11 @@ function ReviewModal({
       return
     }
     const what = action === 'install' ? 'installed' : 'removed'
-    onDone(`${agent === 'claude' ? 'Claude Code' : 'Codex'} hooks ${what}.${result.backupPath ? ` Backup: ${result.backupPath}` : ''}`)
+    const backupName = result.backupPath?.split(/[\\/]/).pop()
+    onDone(
+      `${agent === 'claude' ? 'Claude Code' : 'Codex'} hooks ${what}.` +
+        (backupName ? ` Previous file backed up next to it as ${backupName}.` : '')
+    )
     onClose()
   }
 
@@ -141,38 +145,51 @@ export default function AgentHooks({ connected }: { connected: boolean }): React
   useEffect(refresh, [refresh])
 
   return (
-    <div className="settings-updates agent-hooks">
-      <div className="settings-updates-row">
-        <span className="settings-version">Agent hooks</span>
-        <span className="settings-update-status">{connected ? 'Hook events arriving' : 'No hook events yet'}</span>
+    <section className="settings-section agent-hooks">
+      <div className="settings-section-head">
+        <h3>Agent hooks</h3>
+        <span className={`settings-pill${connected ? ' live' : ''}`}>
+          <span className={`status-dot ${connected ? 'status-working' : 'status-idle'}`} />
+          {connected ? 'Receiving events' : 'No events yet'}
+        </span>
       </div>
-      <p className="settings-update-status">
-        Exact working / waiting / idle status straight from the agent, per terminal. Without hooks Pitwall still
-        works from terminal output.
+      <p className="settings-hint">
+        Exact working / waiting / idle status straight from the agent, per terminal. Without hooks Pitwall still works
+        from terminal output.
       </p>
-      {statuses?.map((s) => (
-        <div key={s.agent} className="settings-updates-row agent-hook-row" data-agent={s.agent} data-state={s.state}>
-          <span className="agent-hook-name">{s.label}</span>
-          <span className={`agent-hook-state state-${s.state}`}>{STATE_LABEL[s.state]}</span>
-          <span className="agent-hook-path" title={s.error ?? s.configPath}>
-            {s.configPath}
-          </span>
-          <div className="settings-button-group">
-            {s.state !== 'installed' && s.state !== 'error' && (
-              <button onClick={() => setReview({ agent: s.agent, action: 'install' })}>
-                {s.state === 'outdated' ? 'Update…' : 'Install…'}
-              </button>
-            )}
-            {(s.state === 'installed' || s.state === 'outdated') && (
-              <button onClick={() => setReview({ agent: s.agent, action: 'uninstall' })}>Remove…</button>
-            )}
-          </div>
+      {statuses && (
+        <div className="hook-list">
+          {statuses.map((s) => (
+            <div key={s.agent} className="hook-item" data-agent={s.agent} data-state={s.state}>
+              <div className="hook-item-main">
+                <div className="hook-item-title">
+                  <span className="hook-item-name">{s.label}</span>
+                  <span className={`hook-badge state-${s.state}`}>{STATE_LABEL[s.state]}</span>
+                </div>
+                <div className={`hook-item-path${s.error ? ' has-error' : ''}`} title={s.error ?? s.configPath}>
+                  {s.error ?? s.displayPath}
+                </div>
+              </div>
+              <div className="settings-actions">
+                {s.state !== 'installed' && s.state !== 'error' && (
+                  <button
+                    className="settings-button primary-ish"
+                    onClick={() => setReview({ agent: s.agent, action: 'install' })}
+                  >
+                    {s.state === 'outdated' ? 'Update…' : 'Install…'}
+                  </button>
+                )}
+                {(s.state === 'installed' || s.state === 'outdated') && (
+                  <button className="settings-button" onClick={() => setReview({ agent: s.agent, action: 'uninstall' })}>
+                    Remove…
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
-      {statuses?.some((s) => s.state === 'error') && (
-        <p className="error-text">{statuses.find((s) => s.state === 'error')?.error}</p>
       )}
-      {message && <p className="settings-update-status">{message}</p>}
+      {message && <p className="settings-note">{message}</p>}
       {review && (
         <ReviewModal
           agent={review.agent}
@@ -184,6 +201,6 @@ export default function AgentHooks({ connected }: { connected: boolean }): React
           onClose={() => setReview(null)}
         />
       )}
-    </div>
+    </section>
   )
 }

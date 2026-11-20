@@ -184,7 +184,12 @@ export class HookInstaller {
     return Promise.all(
       (['claude', 'codex'] as const).map(async (agent) => {
         const plan = await this.plan(agent, 'install')
-        const base = { agent, label: LABELS[agent], configPath: plan.configPath }
+        const base = {
+          agent,
+          label: LABELS[agent],
+          configPath: plan.configPath,
+          displayPath: plan.configPath.startsWith(this.home) ? `~${plan.configPath.slice(this.home.length)}` : plan.configPath
+        }
         if (plan.error) return { ...base, state: 'error' as const, error: plan.error }
         if (!plan.changed) return { ...base, state: 'installed' as const }
         return { ...base, state: plan.hadPitwall ? ('outdated' as const) : ('missing' as const) }
