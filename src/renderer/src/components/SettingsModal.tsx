@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AppTheme, ImportPreviewEntry, RestorableSettings, UpdateStatus } from '../../../shared/types'
+import type { AppTheme, ImportPreviewEntry, RestorableSettings } from '../../../shared/types'
 import { useAppStore } from '../store/useAppStore'
 import ImportPreviewModal from './ImportPreviewModal'
 import HookInfoModal from './HookInfoModal'
@@ -16,26 +16,6 @@ const THEME_OPTIONS: Array<{ id: AppTheme; label: string; bg: string; bg2: strin
   { id: 'solarized', label: 'Solarized', bg: '#002b36', bg2: '#073642', accent: '#2aa198' }
 ]
 
-function updateStatusText(status: UpdateStatus | null): string {
-  if (!status) return ''
-  switch (status.state) {
-    case 'checking':
-      return 'Checking for updates…'
-    case 'available':
-      return `Update available: v${status.version} — downloading…`
-    case 'not-available':
-      return "You're on the latest version."
-    case 'downloading':
-      return `Downloading update… ${status.percent}%`
-    case 'downloaded':
-      return `Update v${status.version} downloaded — restart to install.`
-    case 'error':
-      return `Couldn't check for updates: ${status.message}`
-    case 'unsupported':
-      return status.message
-  }
-}
-
 export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const settings = useAppStore((s) => s.settings)
   const updateAppSettings = useAppStore((s) => s.updateAppSettings)
@@ -46,8 +26,6 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
   const [defaultStartCommand, setDefaultStartCommand] = useState(settings.defaultStartCommand)
   const [idleSeconds, setIdleSeconds] = useState(Math.round(settings.idleDebounceMs / 1000))
   const [version, setVersion] = useState<string | null>(null)
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
-  const [checking, setChecking] = useState(false)
   const [dataMessage, setDataMessage] = useState<string | null>(null)
   const [hookInfoOpen, setHookInfoOpen] = useState(false)
 
@@ -59,13 +37,6 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
 
   useEffect(() => {
     void window.api.getAppVersion().then(setVersion)
-    const unsubscribe = window.api.onUpdateStatus((status) => {
-      setUpdateStatus(status)
-      if (status.state !== 'checking' && status.state !== 'downloading') setChecking(false)
-    })
-    return () => {
-      unsubscribe()
-    }
   }, [])
 
   function commitStartCommand(): void {
@@ -197,23 +168,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
         <div className="settings-updates">
           <div className="settings-updates-row">
             <span className="settings-version">ittop {version ? `v${version}` : ''}</span>
-            {updateStatus?.state === 'downloaded' ? (
-              <button className="primary" onClick={() => void window.api.installUpdate()}>
-                Restart &amp; install
-              </button>
-            ) : (
-              <button
-                disabled={checking}
-                onClick={() => {
-                  setChecking(true)
-                  void window.api.checkForUpdates()
-                }}
-              >
-                {checking ? 'Checking…' : 'Check for updates'}
-              </button>
-            )}
           </div>
-          {updateStatus && <p className="settings-update-status">{updateStatusText(updateStatus)}</p>}
         </div>
 
         <div className="modal-actions">

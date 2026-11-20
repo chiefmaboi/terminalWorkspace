@@ -120,14 +120,10 @@ export const IPC = {
   hookServerInfo: 'hooks:getServerInfo',
   hookEventReceived: 'hooks:eventReceived',
   terminalFocusRequest: 'terminal:focusRequest',
-  openSettingsRequest: 'app:openSettingsRequest',
 
   showNotification: 'notification:show',
 
-  appGetVersion: 'app:getVersion',
-  appCheckForUpdates: 'app:checkForUpdates',
-  appInstallUpdate: 'app:installUpdate',
-  appUpdateStatus: 'app:updateStatus'
+  appGetVersion: 'app:getVersion'
 } as const
 
 export interface ImportPreviewEntry {
@@ -153,12 +149,3 @@ export interface ImportCommitInput {
   entries: ImportPreviewEntry[]
   settings: RestorableSettings | null
 }
-
-export type UpdateStatus =
-  | { state: 'checking' }
-  | { state: 'available'; version: string }
-  | { state: 'not-available' }
-  | { state: 'downloading'; percent: number }
-  | { state: 'downloaded'; version: string }
-  | { state: 'error'; message: string }
-  | { state: 'unsupported'; message: string }

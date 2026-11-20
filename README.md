@@ -23,7 +23,7 @@ works just as well for Codex CLI, Gemini CLI, or any other terminal-based coding
 - 📁 **Built-in file explorer** with Markdown/HTML preview, no alt-tabbing to VS Code.
 - 🎙️ **Works with voice dictation tools** (Wispr Flow, Windows Voice Access, Spokenly, etc.):
   copy/paste and dictated text land correctly inside Claude Code's own UI.
-- 🎨 5 themes, full backup/restore, auto-updates via GitHub Releases.
+- 🎨 5 themes, full backup/restore.
 - 🆓 **100% free, open-source, MIT-licensed.** No telemetry, no account, no cloud sync.
 
 ## Screenshots
@@ -75,9 +75,9 @@ hosted/commercial GUI with cloud sync and subscription tiers. ittop is neither:
 - **Keyboard shortcuts**: `Ctrl+1`…`Ctrl+9` jump to a Workspace, `Ctrl+N` new Workspace,
   `Ctrl+K` command palette, arrow keys to cycle Workspaces.
 - **Lives in the system tray**: closing the window keeps every session running in the
-  background instead of quitting. Tray menu: Open, Check for updates, Quit.
+  background instead of quitting. Tray menu: Open, Quit.
 - **5 themes** (Dark, Light, Dracula, Nord, Solarized), full settings + Workspace backup/restore
-  (export/import as JSON), auto-updates via GitHub Releases.
+  (export/import as JSON).
 - On restart, you're asked whether to relaunch the previously active session (Claude Code
   sessions don't survive an app restart).
 
@@ -227,9 +227,8 @@ are killed via `tree-kill` so no orphaned `claude` processes are left running.
 ## Releasing
 
 Pushing a tag matching `v*` (e.g. `v1.1.0`) runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which builds the Windows installer and publishes it as a GitHub Release. `electron-updater`
-(wired up in Settings → Check for updates) reads that release feed, so once one is published
-every installed copy of ittop can update to it automatically.
+which typechecks, tests, and builds the Windows and macOS installers, uploading them as workflow
+artifacts. Nothing is published automatically and the app has no auto-updater.
 
 ## Troubleshooting
 

@@ -10,7 +10,6 @@ import { PtyManager } from './ptyManager'
 import { StatusManager } from './statusManager'
 import { HookServer } from './hookServer'
 import { GitBranchPoller } from './git'
-import { Updater } from './updater'
 import { IPC, HOOK_SERVER_PORT } from '../shared/types'
 import type {
   CreateTerminalInput,
@@ -57,15 +56,6 @@ function createTray(): void {
         click: () => {
           mainWindow?.show()
           mainWindow?.focus()
-        }
-      },
-      {
-        label: 'Check for updates',
-        click: () => {
-          mainWindow?.show()
-          mainWindow?.focus()
-          mainWindow?.webContents.send(IPC.openSettingsRequest)
-          void updater.checkForUpdates()
         }
       },
       { type: 'separator' },
@@ -135,7 +125,6 @@ const gitPoller = new GitBranchPoller(
   () => allTerminals().map((t) => ({ id: t.id, path: t.projectPath })),
   (terminalId, branch) => mainWindow?.webContents.send(IPC.gitBranchChanged, { id: terminalId, branch })
 )
-const updater = new Updater((status) => mainWindow?.webContents.send(IPC.appUpdateStatus, status))
 
 const unreadCounts = new Map<string, number>()
 
@@ -183,11 +172,23 @@ const APP_URL_PREFIX =
     ? process.env['ELECTRON_RENDERER_URL']
     : pathToFileURL(join(__dirname, '../renderer/index.html')).href
 
+// Only plain web links are ever handed to the OS. shell.openExternal on any other scheme
+// (file:, ms-*:, registered custom protocol handlers, ...) can launch local programs.
+function openExternalSafe(url: string): void {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return
+  }
+  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') void shell.openExternal(parsed.href)
+}
+
 function guardNavigation(webContents: Electron.WebContents): void {
   webContents.on('will-navigate', (event, url) => {
     if (url.startsWith(APP_URL_PREFIX)) return
     event.preventDefault()
-    if (url.startsWith('http:') || url.startsWith('https:')) void shell.openExternal(url)
+    openExternalSafe(url)
   })
 }
 
@@ -242,7 +243,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openExternalSafe(details.url)
     return { action: 'deny' }
   })
   guardNavigation(mainWindow.webContents)
@@ -269,7 +270,7 @@ function createPreviewWindow(filePath: string): void {
   })
 
   previewWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openExternalSafe(details.url)
     return { action: 'deny' }
   })
   guardNavigation(previewWindow.webContents)
@@ -631,8 +632,6 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.appGetVersion, () => app.getVersion())
-  ipcMain.handle(IPC.appCheckForUpdates, () => updater.checkForUpdates())
-  ipcMain.handle(IPC.appInstallUpdate, () => updater.installUpdate())
 }
 
 app.whenReady().then(() => {
@@ -666,11 +665,6 @@ app.whenReady().then(() => {
   gitPoller.start()
   createWindow()
   createTray()
-
-  // Silent background check a few seconds after launch — errors/no-update states are only
-  // surfaced when the user opens Settings themselves, this just gets the "update available"
-  // notice in front of them without requiring a manual click every time.
-  setTimeout(() => void updater.checkForUpdates(), 5000)
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) {

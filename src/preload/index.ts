@@ -12,7 +12,6 @@ import type {
   ReadFileResult,
   Terminal,
   TerminalRuntimeState,
-  UpdateStatus,
   Workspace
 } from '../shared/types'
 
@@ -99,11 +98,6 @@ const api = {
     ipcRenderer.on(IPC.terminalFocusRequest, listener)
     return () => ipcRenderer.removeListener(IPC.terminalFocusRequest, listener)
   },
-  onOpenSettingsRequest: (callback: () => void) => {
-    const listener = (): void => callback()
-    ipcRenderer.on(IPC.openSettingsRequest, listener)
-    return () => ipcRenderer.removeListener(IPC.openSettingsRequest, listener)
-  },
   onHookEvent: (callback: (hookEventName: string, receivedAt: number) => void) => {
     const listener = (
       _event: Electron.IpcRendererEvent,
@@ -113,14 +107,7 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.hookEventReceived, listener)
   },
 
-  getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC.appGetVersion),
-  checkForUpdates: (): Promise<void> => ipcRenderer.invoke(IPC.appCheckForUpdates),
-  installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC.appInstallUpdate),
-  onUpdateStatus: (callback: (status: UpdateStatus) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus): void => callback(status)
-    ipcRenderer.on(IPC.appUpdateStatus, listener)
-    return () => ipcRenderer.removeListener(IPC.appUpdateStatus, listener)
-  }
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC.appGetVersion)
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -39,15 +39,6 @@ mac:
   # developer" warning on first open; see README for the right-click-to-open workaround.
   hardenedRuntime: false
 afterSign: scripts/afterSign.js
-# electron-updater reads this to check/download new versions from GitHub Releases. Publishing a
-# release (electron-builder --publish always) needs a GH_TOKEN with repo access at build time —
-# checking for updates as an end user does not, GitHub Releases are public.
-publish:
-  provider: github
-  owner: pottz91
-  repo: ittop
-  # Publish straight to a real release instead of electron-builder's default draft — the
-  # release workflow already gates on tests/typecheck passing first, and a later step needs
-  # to find this release by its exact tag name (which a still-drafted "untagged-..." release
-  # doesn't have) to attach the VirusTotal report link.
-  releaseType: release
+# Never publish from electron-builder. This must be explicit: with no `publish` key at all,
+# electron-builder infers a GitHub publisher from package.json `repository`.
+publish: null
