@@ -58,7 +58,6 @@ export const FLOW_WATCHDOG_MS = 5000
 interface Session {
   proc: pty.IPty
   terminalId: string
-  idleTimer: NodeJS.Timeout | null
   pending: string[]
   pendingChars: number
   flushTimer: NodeJS.Timeout | null
@@ -77,13 +76,14 @@ export class PtyManager {
   private sessions = new Map<string, Session>()
   private priorityId: string | null = null
 
+  /**
+   * @param statusManager receives this terminal's status evidence: OSC notifications, output
+   *   activity (for its idle timeout) and user input. It decides what the status actually is.
+   */
   constructor(
     private statusManager: StatusManager,
     private onData: (terminalId: string, data: string) => void,
-    private onExit: (terminalId: string, exitCode: number) => void,
-    // How long output must stay silent before a "working" session is auto-marked idle. This is
-    // a fallback signal that needs no Claude Code hook setup, user-tunable via Settings.
-    private getIdleDebounceMs: () => number
+    private onExit: (terminalId: string, exitCode: number) => void
   ) {}
 
   has(terminalId: string): boolean {
@@ -114,7 +114,6 @@ export class PtyManager {
     const session: Session = {
       proc,
       terminalId,
-      idleTimer: null,
       pending: [],
       pendingChars: 0,
       flushTimer: null,
@@ -126,17 +125,22 @@ export class PtyManager {
       osc: new OscStream()
     }
     this.sessions.set(terminalId, session)
+    // New process: whatever was known about the previous one no longer applies.
+    this.statusManager.reset(terminalId)
 
     proc.onData((data) => {
       // A process that was stopped (restart/delete) can still emit trailing output after a new
       // session took over the same terminal id. Never let it bleed into the new session.
       if (!this.isCurrent(session)) return
       // OSC parsing runs on raw chunks, before batching, so status reacts immediately.
+      this.statusManager.noteOutput(terminalId)
       for (const event of session.osc.feed(data)) {
-        if (event.kind === 'attention') this.statusManager.markWaiting(terminalId)
-        else session.reportedCwd = event.path
+        if (event.kind === 'attention') {
+          this.statusManager.signal({ terminalId, state: 'waiting', source: 'osc', message: event.message })
+        } else {
+          session.reportedCwd = event.path
+        }
       }
-      this.scheduleAutoIdle(session)
       this.enqueue(session, data)
     })
 
@@ -269,30 +273,16 @@ export class PtyManager {
   }
 
   private clearTimers(session: Session): void {
-    if (session.idleTimer) clearTimeout(session.idleTimer)
     if (session.flushTimer) clearTimeout(session.flushTimer)
     if (session.watchdog) clearTimeout(session.watchdog)
-    session.idleTimer = null
     session.flushTimer = null
     session.watchdog = null
-  }
-
-  private scheduleAutoIdle(session: Session): void {
-    if (session.idleTimer) clearTimeout(session.idleTimer)
-    session.idleTimer = setTimeout(() => {
-      session.idleTimer = null
-      if (this.statusManager.get(session.terminalId) === 'working') {
-        this.statusManager.markIdle(session.terminalId)
-      }
-    }, this.getIdleDebounceMs())
   }
 
   write(terminalId: string, data: string): void {
     const session = this.sessions.get(terminalId)
     if (!session) return
-    if (data.includes('\r') || data.includes('\n')) {
-      this.statusManager.markLikelyWorking(terminalId)
-    }
+    this.statusManager.noteInput(terminalId, data)
     session.proc.write(data)
   }
 

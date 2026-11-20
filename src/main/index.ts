@@ -10,6 +10,7 @@ import { PtyManager } from './ptyManager'
 import { StatusManager } from './statusManager'
 import { HookServer } from './hookServer'
 import { GitBranchPoller } from './git'
+import { stateForClaudeHook } from './hookEvents'
 import { IPC, HOOK_SERVER_PORT } from '../shared/types'
 import type {
   CreateTerminalInput,
@@ -88,16 +89,14 @@ function createTray(): void {
 }
 
 const store = new Store()
-const statusManager = new StatusManager()
+const statusManager = new StatusManager(() => store.getState().settings.idleDebounceMs)
 const ptyManager = new PtyManager(
   statusManager,
   (terminalId, data) => mainWindow?.webContents.send(IPC.ptyData, { id: terminalId, data }),
   (terminalId, exitCode) => {
-    // The session's idle timer died with it, so a 'working' status would otherwise stick forever.
-    statusManager.markIdle(terminalId)
+    statusManager.signal({ terminalId, state: 'idle', source: 'exit' })
     mainWindow?.webContents.send(IPC.ptyExit, { id: terminalId, exitCode })
-  },
-  () => store.getState().settings.idleDebounceMs
+  }
 )
 
 function allTerminals(): Terminal[] {
@@ -125,13 +124,8 @@ const hookServer = new HookServer((payload) => {
   const terminal = allTerminals().find((t) => samePath(t.projectPath, payload.projectPath))
   if (!terminal) return
 
-  if (payload.hookEventName === 'Notification') {
-    statusManager.markWaiting(terminal.id)
-    bumpUnread(terminal.id)
-    maybeNotify(terminal, payload.message ?? 'Claude is waiting for your input')
-  } else if (payload.hookEventName === 'Stop' || payload.hookEventName === 'SubagentStop') {
-    statusManager.markIdle(terminal.id)
-  }
+  const state = stateForClaudeHook(payload.hookEventName)
+  if (state) statusManager.signal({ terminalId: terminal.id, state, source: 'hook', message: payload.message })
 })
 const gitPoller = new GitBranchPoller(
   () => allTerminals().map((t) => ({ id: t.id, path: t.projectPath })),
@@ -140,14 +134,6 @@ const gitPoller = new GitBranchPoller(
 
 const unreadCounts = new Map<string, number>()
 
-function bumpUnread(terminalId: string): void {
-  unreadCounts.set(terminalId, (unreadCounts.get(terminalId) ?? 0) + 1)
-  mainWindow?.webContents.send(IPC.statusChanged, {
-    id: terminalId,
-    status: statusManager.get(terminalId),
-    unreadCount: unreadCounts.get(terminalId)
-  })
-}
 
 function maybeNotify(terminal: Terminal, body: string): void {
   if (!store.getState().settings.notificationsEnabled) return
@@ -166,7 +152,15 @@ function maybeNotify(terminal: Terminal, body: string): void {
   notification.show()
 }
 
-statusManager.onChange((terminalId, status) => {
+// Every status change, whatever its source (hook, OSC notification, input, timeout, exit),
+// reaches the renderer here. Becoming "waiting" is what earns an unread mark and a desktop
+// notification, so an agent that only emits OSC 9 (no hooks) notifies just like a hooked one.
+statusManager.onChange((terminalId, status, change) => {
+  if (status === 'waiting' && change.previous !== 'waiting') {
+    unreadCounts.set(terminalId, (unreadCounts.get(terminalId) ?? 0) + 1)
+    const found = findTerminal(terminalId)
+    if (found) maybeNotify(found.terminal, change.message || 'Waiting for your input')
+  }
   mainWindow?.webContents.send(IPC.statusChanged, {
     id: terminalId,
     status,
@@ -422,7 +416,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC.terminalRestart, async (_event, terminalId: string) => {
     await ptyManager.stop(terminalId)
-    statusManager.markIdle(terminalId)
+    statusManager.signal({ terminalId, state: 'idle', source: 'exit' })
   })
 
   ipcMain.handle(IPC.terminalMarkRead, (_event, terminalId: string) => {

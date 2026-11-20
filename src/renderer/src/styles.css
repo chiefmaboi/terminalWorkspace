@@ -1028,10 +1028,45 @@ button {
   box-shadow: 0 0 0 1px var(--status-working);
 }
 
+/* Waiting = the agent needs you: a light outline plus a soft glow that breathes. The glow is
+   its own layer and only its opacity animates, so it stays on the compositor instead of
+   repainting a shadow every frame on a wall of live tiles. */
 .tile[data-status='waiting'] .tile-ring {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-waiting) 70%, white);
+}
+
+.tile-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
   box-shadow:
-    0 0 0 2px var(--status-waiting),
-    0 0 12px var(--status-waiting);
+    0 0 10px 2px color-mix(in srgb, var(--status-waiting) 75%, white),
+    0 0 26px 6px color-mix(in srgb, var(--status-waiting) 45%, transparent);
+}
+
+.tile[data-status='waiting'] .tile-ring::after {
+  animation: tile-waiting-glow 2.4s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@keyframes tile-waiting-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile[data-status='waiting'] .tile-ring::after {
+    animation: none;
+    opacity: 0.8;
+  }
 }
 
 .tile.tile-selected .tile-ring {

@@ -1,6 +1,6 @@
 import { _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -18,7 +18,17 @@ export async function launchApp(
   extraEnv: Record<string, string> = {},
   options: { userDataDir?: string } = {}
 ): Promise<LaunchedApp> {
-  const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'pitwall-e2e-'))
+  let userDataDir = options.userDataDir
+  if (!userDataDir) {
+    userDataDir = mkdtempSync(join(tmpdir(), 'pitwall-e2e-'))
+    // Fresh test profiles start with desktop notifications off, so tests that make a tile
+    // "waiting" don't pop OS toasts on the machine running them. (The app merges this with its
+    // default settings exactly as it would a real saved profile.)
+    writeFileSync(
+      join(userDataDir, 'workspaces.json'),
+      JSON.stringify({ workspaces: [], settings: { notificationsEnabled: false } })
+    )
+  }
 
   // require, not import: Playwright's test runner executes under plain Node, so requiring the
   // `electron` package here returns the path to the platform Electron binary (its normal

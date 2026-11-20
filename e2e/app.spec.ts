@@ -166,6 +166,16 @@ test.describe('pty lifecycle', () => {
     )
     await window.keyboard.press('Enter')
     await expect(tile).toHaveAttribute('data-status', 'waiting', { timeout: 10_000 })
+    // Waiting tiles get the light breathing glow (an opacity animation on the ring's ::after).
+    expect(
+      await tile.locator('.tile-ring').evaluate((el) => getComputedStyle(el, '::after').animationName)
+    ).toBe('tile-waiting-glow')
+    // Answering (Enter) clears waiting, and with it the glow.
+    await window.keyboard.press('Enter')
+    await expect(tile).not.toHaveAttribute('data-status', 'waiting')
+    expect(
+      await tile.locator('.tile-ring').evaluate((el) => getComputedStyle(el, '::after').animationName)
+    ).toBe('none')
   })
 
   test('a large burst of output drains completely through flow control', async () => {

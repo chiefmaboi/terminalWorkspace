@@ -67,7 +67,7 @@ function setup(): {
   const sm = new StatusManager()
   const onData = vi.fn()
   const onExit = vi.fn()
-  const pm = new PtyManager(sm, onData, onExit, () => 1200)
+  const pm = new PtyManager(sm, onData, onExit)
   return { pm, sm, onData, onExit }
 }
 
@@ -98,6 +98,22 @@ describe('PtyManager', () => {
       delete process.env.CLAUDE_CODE_ENTRYPOINT
       delete process.env.PITWALL_LEAK_CHECK
     }
+  })
+
+  it('feeds the status layer: Enter -> working, OSC notification -> waiting (with its text), restart -> idle', async () => {
+    const { pm, sm } = setup()
+    const changes: Array<[string, string, string | undefined]> = []
+    sm.onChange((_id, status, change) => changes.push([status, change.source, change.message]))
+    pm.start('t', '/p', '')
+    pm.write('t', 'claude\r')
+    expect(sm.get('t')).toBe('working')
+    procs[0].emitData('\x1b]9;Approve edit?\x07')
+    expect(sm.get('t')).toBe('waiting')
+    expect(changes.at(-1)).toEqual(['waiting', 'osc', 'Approve edit?'])
+
+    await pm.stop('t')
+    pm.start('t', '/p', '') // a fresh process forgets the old one's state
+    expect(sm.get('t')).toBe('idle')
   })
 
   it('tracks the cwd a shell reports, falling back to where it started', async () => {
