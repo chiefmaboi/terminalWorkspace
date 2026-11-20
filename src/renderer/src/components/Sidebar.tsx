@@ -71,7 +71,7 @@ export default function Sidebar({ onNewWorkspace, onNewTerminal }: Props): React
   const [searchQuery, setSearchQuery] = useState('')
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => {
     try {
-      const raw = localStorage.getItem('ittop.collapsedWorkspaces')
+      const raw = localStorage.getItem('pitwall.collapsedWorkspaces')
       return raw ? new Set(JSON.parse(raw)) : new Set()
     } catch {
       return new Set()
@@ -89,7 +89,7 @@ export default function Sidebar({ onNewWorkspace, onNewTerminal }: Props): React
       if (next.has(id)) next.delete(id)
       else next.add(id)
       try {
-        localStorage.setItem('ittop.collapsedWorkspaces', JSON.stringify([...next]))
+        localStorage.setItem('pitwall.collapsedWorkspaces', JSON.stringify([...next]))
       } catch {
         // localStorage unavailable — collapse state just won't persist across restarts
       }
@@ -464,7 +464,7 @@ export default function Sidebar({ onNewWorkspace, onNewTerminal }: Props): React
             <p>
               This stops all {confirmDeleteWorkspace.terminals.length} running session
               {confirmDeleteWorkspace.terminals.length === 1 ? '' : 's'} in{' '}
-              <strong>{confirmDeleteWorkspace.name}</strong> and removes it from ittop. The project files on disk
+              <strong>{confirmDeleteWorkspace.name}</strong> and removes it from Pitwall. The project files on disk
               are untouched.
             </p>
             <div className="modal-actions">

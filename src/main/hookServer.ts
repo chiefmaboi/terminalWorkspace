@@ -64,7 +64,7 @@ export class HookServer {
 
     // A Node EventEmitter throws (crashing the whole Electron main process) if 'error' fires
     // with no listener attached — without this, anything already using the port (another
-    // ittop instance, a leftover process, or plain bad luck) would take the entire app down
+    // Pitwall instance, a leftover process, or plain bad luck) would take the entire app down
     // instead of just leaving hook-based status detection unavailable for this session.
     this.server.on('error', (err) => {
       console.error(`[hookServer] failed to listen on 127.0.0.1:${HOOK_SERVER_PORT}:`, err.message)

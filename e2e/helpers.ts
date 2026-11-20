@@ -11,7 +11,7 @@ export interface LaunchedApp {
 }
 
 export async function launchApp(): Promise<LaunchedApp> {
-  const userDataDir = mkdtempSync(join(tmpdir(), 'ittop-e2e-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'pitwall-e2e-'))
 
   // require, not import: Playwright's test runner executes under plain Node, so requiring the
   // `electron` package here returns the path to the platform Electron binary (its normal
@@ -24,7 +24,7 @@ export async function launchApp(): Promise<LaunchedApp> {
   // `electron` invocation run as plain Node instead of launching the app (app/BrowserWindow
   // undefined). Real user machines don't have this set, but strip it defensively either way.
   delete env.ELECTRON_RUN_AS_NODE
-  env.ITTOP_USER_DATA_DIR = userDataDir
+  env.PITWALL_USER_DATA_DIR = userDataDir
 
   const app = await electron.launch({
     executablePath: electronPath,

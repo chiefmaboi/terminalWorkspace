@@ -47,7 +47,7 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     const active = workspaces.find((w) => w.id === settings.activeWorkspaceId)
-    document.title = active ? `${active.name}: ittop` : 'ittop'
+    document.title = active ? `${active.name}: Pitwall` : 'Pitwall'
   }, [workspaces, settings.activeWorkspaceId])
 
   useEffect(() => {

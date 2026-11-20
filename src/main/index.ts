@@ -28,14 +28,21 @@ import type {
 } from '../shared/types'
 
 // E2E tests set this to an isolated temp directory so test runs never read/write the real
-// user's persisted workspaces.json. Must run before Store() (below) touches userData.
-if (process.env.ITTOP_USER_DATA_DIR) {
-  app.setPath('userData', process.env.ITTOP_USER_DATA_DIR)
+// user's persisted workspaces.json. Must run before Store() (below) touches userData, and
+// before the single-instance lock, which is scoped to the userData directory.
+if (process.env.PITWALL_USER_DATA_DIR) {
+  app.setPath('userData', process.env.PITWALL_USER_DATA_DIR)
 }
+
+// One running instance per userData directory. A second instance would fight the first over
+// workspaces.json and the hook server, so it hands off to the existing window and exits
+// (the 'second-instance' handler below focuses the existing window).
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) app.quit()
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-// ittop's whole point is keeping sessions alive in the background — closing the window (the X
+// Pitwall's whole point is keeping sessions alive in the background — closing the window (the X
 // button, Alt+F4, ...) minimizes to the tray instead of quitting. This flag distinguishes that
 // from a real quit (tray menu "Quit", or the app quitting for another reason), so the window's
 // own 'close' handler knows whether to hide or actually let the close proceed.
@@ -48,11 +55,11 @@ function createTray(): void {
   const size = process.platform === 'darwin' ? 22 : 16
   const trayIcon = nativeImage.createFromPath(icon).resize({ width: size, height: size })
   tray = new Tray(trayIcon)
-  tray.setToolTip('ittop')
+  tray.setToolTip('Pitwall')
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
-        label: 'Open ittop',
+        label: 'Open Pitwall',
         click: () => {
           mainWindow?.show()
           mainWindow?.focus()
@@ -202,7 +209,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#1e1e1e',
-    title: 'ittop',
+    title: 'Pitwall',
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -261,7 +268,7 @@ function createPreviewWindow(filePath: string): void {
     height: 800,
     autoHideMenuBar: true,
     backgroundColor: '#1e1e1e',
-    title: `ittop: ${filePath}`,
+    title: `Pitwall: ${filePath}`,
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -432,7 +439,7 @@ function registerIpcHandlers(): void {
     if (!mainWindow) return { ok: false, reason: 'error', message: 'No window available.' }
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Export workspaces',
-      defaultPath: join(app.getPath('documents'), 'ittop-workspaces.json'),
+      defaultPath: join(app.getPath('documents'), 'pitwall-workspaces.json'),
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
     if (result.canceled || !result.filePath) return { ok: false, reason: 'cancelled' }
@@ -634,8 +641,20 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appGetVersion, () => app.getVersion())
 }
 
+app.on('second-instance', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
+
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.ittop.app')
+  // Lost the single-instance lock: app.quit() is already underway, start nothing.
+  if (!gotSingleInstanceLock) return
+
+  // Must match electron-builder.yml `appId`, or Windows attributes notifications to a
+  // different (unknown) app identity.
+  electronApp.setAppUserModelId('com.mab.pitwall')
 
   // Third-party dictation tools (Wispr Flow, Spokenly, Windows Voice Access, ...) typically
   // inject recognized text via the OS accessibility tree rather than simulated keystrokes.

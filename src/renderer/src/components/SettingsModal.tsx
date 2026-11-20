@@ -167,7 +167,7 @@ export default function SettingsModal({ onClose }: Props): React.JSX.Element {
 
         <div className="settings-updates">
           <div className="settings-updates-row">
-            <span className="settings-version">ittop {version ? `v${version}` : ''}</span>
+            <span className="settings-version">Pitwall {version ? `v${version}` : ''}</span>
           </div>
         </div>
 

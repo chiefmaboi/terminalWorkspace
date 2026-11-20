@@ -11,7 +11,7 @@ function buildSnippet(port: number): string {
   // with Windows 10+). Claude Code runs hook commands through Git Bash on Windows, which
   // expands $-prefixed variables to nothing before a nested PowerShell command ever sees them,
   // so an inline PowerShell one-liner that tries to remap the payload silently breaks. This
-  // avoids that entirely by not needing any shell variables — ittop reads Claude Code's raw
+  // avoids that entirely by not needing any shell variables — Pitwall reads Claude Code's raw
   // hook field names (hook_event_name, cwd, message) directly.
   const command = `curl.exe -s -X POST -H \\"Content-Type: application/json\\" --data-binary @- --max-time 2 http://127.0.0.1:${port}`
 

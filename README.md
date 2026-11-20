@@ -1,16 +1,15 @@
-# ittop: Multi-Workspace Manager for Claude Code, Codex & Co.
+# Pitwall: a grid wall for Claude Code, Codex & Co.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform: Windows | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-0078D6.svg)](#prerequisites)
-[![Latest release](https://img.shields.io/github/v/release/pottz91/ittop)](https://github.com/pottz91/ittop/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/pottz91/ittop/total)](https://github.com/pottz91/ittop/releases/latest)
-[![VirusTotal](https://img.shields.io/badge/VirusTotal-scanned-brightgreen?logo=virustotal&logoColor=white)](https://github.com/pottz91/ittop/releases/latest)
 
-### 📥 [Download the latest installer](https://github.com/pottz91/ittop/releases/latest)
+> Pitwall is a fork of [ittop](https://github.com/pottz91/ittop) by pottz91 (MIT), being reworked
+> into a grid wall of live terminals. Much of this README still describes upstream behavior and
+> will be rewritten once the grid lands.
 
-<p align="center"><img src="docs/demo.gif" alt="ittop demo" width="900"></p>
+<p align="center"><img src="docs/demo.gif" alt="Demo (upstream ittop UI)" width="900"></p>
 
-**ittop organizes multiple parallel [Claude Code](https://claude.com/claude-code) sessions into
+**Pitwall organizes multiple parallel [Claude Code](https://claude.com/claude-code) sessions into
 Workspaces on Windows and macOS, built for vibe coding.** It's not a replacement for Claude Code,
 it's the missing layer around it. Each Terminal's start command is just a plain string, so it
 works just as well for Codex CLI, Gemini CLI, or any other terminal-based coding agent. Quick facts:
@@ -32,11 +31,11 @@ works just as well for Codex CLI, Gemini CLI, or any other terminal-based coding
 | --- | --- | --- |
 | ![Multiple terminals tiled inside one Workspace](docs/screenshot-main.png) | ![Settings modal with theme picker, hooks, and backup](docs/screenshot-settings.png) | ![Keyboard shortcuts overview](docs/screenshot-shortcuts.png) |
 
-## Why ittop over a tmux-based session manager or a hosted GUI
+## Why Pitwall over a tmux-based session manager or a hosted GUI
 
 Most Claude Code / AI coding agent session managers fall into one of two camps: a `tmux`-wrapping
 TUI (great if you already live in a Unix terminal, awkward to set up on native Windows), or a
-hosted/commercial GUI with cloud sync and subscription tiers. ittop is neither:
+hosted/commercial GUI with cloud sync and subscription tiers. Pitwall is neither:
 
 - **Actually native to Windows**: real ConPTY processes, no WSL layer, no Unix terminal emulator
   pretending to be a Windows app.
@@ -98,25 +97,25 @@ only need them if you ever have to compile `node-pty` from source (see
 
 ## Getting started
 
-**Just want to use it?** Download the installer from [Releases](https://github.com/pottz91/ittop/releases/latest),
-run it, done. `npm install` is only needed if you're building from source.
+There are no published releases yet: build from source (below), or grab the installer artifacts
+from a tagged run of the Release workflow.
 
 🛡️ Every Windows installer is scanned with [VirusTotal](https://www.virustotal.com/) right
 after it's built. The report link is posted in that release's notes.
 
 ### macOS
 
-macOS builds (Intel `ittop-<version>.dmg` and Apple Silicon `ittop-<version>-arm64.dmg`) are
+macOS builds (Intel `pitwall-<version>.dmg` and Apple Silicon `pitwall-<version>-arm64.dmg`) are
 published alongside the Windows installer, but they're **ad-hoc signed only, not notarized**
 (no Apple Developer account behind this project). Gatekeeper will refuse a normal double-click
 open the first time with "unidentified developer". To open it anyway:
 
-1. Mount the DMG and drag `ittop.app` into `/Applications`.
-2. Right-click `ittop.app` → **Open** → confirm in the dialog that appears (only needed once).
+1. Mount the DMG and drag `Pitwall.app` into `/Applications`.
+2. Right-click `Pitwall.app` → **Open** → confirm in the dialog that appears (only needed once).
 
-If you instead see "**ittop** is damaged and can't be opened", that means Gatekeeper's quarantine
+If you instead see "**Pitwall** is damaged and can't be opened", that means Gatekeeper's quarantine
 check failed outright (can happen depending on how the file was downloaded); run
-`xattr -cr /Applications/ittop.app` in Terminal, then try opening it again.
+`xattr -cr /Applications/Pitwall.app` in Terminal, then try opening it again.
 
 ### Build from source (optional)
 
@@ -139,7 +138,7 @@ npm run build:win    # Windows: NSIS .exe
 npm run build:mac    # macOS: .dmg + .zip (unsigned, run on a Mac)
 ```
 
-The output lands in `dist/` (e.g. `dist/ittop-1.0.0-setup.exe`). Building the
+The output lands in `dist/` (e.g. `dist/pitwall-0.1.0-setup.exe`). Building the
 installer does **not** require Visual Studio Build Tools / Xcode Command Line Tools either:
 `electron-builder.yml` sets `npmRebuild: false` since `node-pty`'s N-API prebuilds are already
 ABI-compatible with Electron.
@@ -187,7 +186,7 @@ CLI/tools inside your session choose to emit). To wire it up:
 > remap the payload before sending it. Don't do that: Claude Code runs hook commands through
 > Git Bash on Windows, which expands `$json`/`$body` to nothing before PowerShell ever sees
 > them, silently breaking the hook. The `curl` command above avoids the problem entirely by
-> not needing any shell variables. ittop reads Claude Code's raw hook field names
+> not needing any shell variables. Pitwall reads Claude Code's raw hook field names
 > (`hook_event_name`, `cwd`, `message`) directly.
 
 3. That's it. Restart your Claude Code session inside a workspace and the sidebar status ring
@@ -245,5 +244,5 @@ artifacts. Nothing is published automatically and the app has no auto-updater.
 
 ## License
 
-[MIT](LICENSE): free for personal and commercial use, no warranty. ittop is an independent,
+[MIT](LICENSE): free for personal and commercial use, no warranty. Pitwall is an independent,
 unofficial tool and isn't affiliated with or endorsed by Anthropic.

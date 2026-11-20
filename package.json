@@ -1,11 +1,12 @@
 {
-  "name": "ittop",
-  "version": "1.0.10",
-  "description": "Multi-workspace manager for Claude Code, Codex, Gemini CLI, and other terminal-based coding agents on Windows: run multiple parallel sessions with live status and a built-in file preview, built for vibe coding.",
+  "name": "pitwall",
+  "productName": "Pitwall",
+  "version": "0.1.0",
+  "description": "Grid wall of live terminal sessions for Claude Code, Codex, Gemini CLI, and other terminal-based coding agents, with per-pane status. Forked from ittop by pottz91.",
   "main": "./out/main/index.js",
-  "author": "pottz91",
+  "author": "MAB",
   "license": "MIT",
-  "repository": "https://github.com/pottz91/ittop",
+  "repository": "https://github.com/chiefmaboi/terminalWorkspace",
   "private": true,
   "scripts": {
     "format": "prettier --write .",

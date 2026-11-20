@@ -1,5 +1,5 @@
-appId: com.ittop.app
-productName: ittop
+appId: com.mab.pitwall
+productName: Pitwall
 directories:
   buildResources: build
 # node-pty ships N-API (ABI-stable) prebuilt binaries for win32, so no native rebuild is
@@ -15,7 +15,7 @@ asarUnpack:
   - resources/**
   - '**/node_modules/node-pty/**'
 win:
-  executableName: ittop
+  executableName: pitwall
   target: nsis
   icon: build/icon.ico
 nsis:
