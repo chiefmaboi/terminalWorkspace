@@ -204,6 +204,11 @@ export default function GridWall({ workspace }: Props): React.JSX.Element {
     const tile = slot?.querySelector<HTMLElement>('.tile')
     const id = slot?.dataset.terminalId
     if (!id || !tile) return
+    // A press on a tile must never become a text selection: a quick second press counts as a
+    // double-click, which word-selects whatever terminal text sits behind the overlay, and
+    // moving with a selection under the pointer starts the browser's native drag-and-drop,
+    // which cancels this pointer stream mid-drag.
+    window.getSelection()?.removeAllRanges()
     dragRef.current = { id, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, tile, targetId: null }
   }
 
@@ -291,6 +296,11 @@ export default function GridWall({ workspace }: Props): React.JSX.Element {
             data-cols={layout.cols}
             data-scale={layout.scale.toFixed(3)}
             onPointerDown={onGridPointerDown}
+            // No native drag-and-drop on the wall (it would steal the pointer from drag-reorder).
+            // The zoomed pane is exempt: xterm does its own selection there.
+            onDragStart={(e) => {
+              if (!(e.target as HTMLElement).closest('.tile-zoomed')) e.preventDefault()
+            }}
             style={{
               gridTemplateColumns: `repeat(${layout.cols}, var(--tile-w))`,
               gridAutoRows: `calc(var(--tile-body-h) + ${TILE_HEADER_PX}px)`,

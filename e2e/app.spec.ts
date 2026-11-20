@@ -146,6 +146,28 @@ test.describe('pty lifecycle', () => {
     await expect(screen).toContainText('process exited with code 8', { timeout: 15_000 })
   })
 
+  test("a real OSC 9 notification marks the tile waiting; the prompt's OSC 9;9 cwd reports never do", async () => {
+    const { window } = ctx
+    await addTerminal(window, 'Pty Workspace', 'Notifier', 'echo notifier-ready')
+    const tile = tileOf(window, 'Notifier')
+    await expect(tile.locator('.xterm-screen')).toContainText('notifier-ready', { timeout: 15_000 })
+
+    // Several prompts' worth of Pitwall's own OSC 9;9 cwd reports: not a notification.
+    await tile.locator('.tile-overlay').click()
+    for (let i = 0; i < 3; i++) await window.keyboard.press('Enter')
+    await window.waitForTimeout(2000) // past the idle debounce, so a stray "waiting" would show
+    await expect(tile).not.toHaveAttribute('data-status', 'waiting')
+
+    // An actual OSC 9 notification from a program in the terminal.
+    await window.keyboard.type(
+      process.platform === 'win32'
+        ? 'Write-Host -NoNewline "$([char]27)]9;needs you$([char]7)"'
+        : "printf '\\033]9;needs you\\007'"
+    )
+    await window.keyboard.press('Enter')
+    await expect(tile).toHaveAttribute('data-status', 'waiting', { timeout: 10_000 })
+  })
+
   test('a large burst of output drains completely through flow control', async () => {
     const { window } = ctx
     // ~1 MB of output, well past FLOW_HIGH_WATERMARK, so the pty must pause and resume rather
@@ -541,6 +563,10 @@ test.describe('grid wall', () => {
     const grid = window.locator('.wall-grid')
     const select = window.locator('.wall-scale select')
     const scale = async (): Promise<number> => Number(await grid.getAttribute('data-scale'))
+
+    await select.selectOption('0.25')
+    await expect(grid).toHaveAttribute('data-cols', '4')
+    expect(await scale()).toBeLessThanOrEqual(0.25)
 
     await select.selectOption('0.33')
     await expect(grid).toHaveAttribute('data-cols', '3')

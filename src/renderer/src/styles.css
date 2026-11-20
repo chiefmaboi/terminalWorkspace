@@ -1466,3 +1466,12 @@ button {
 .file-drawer-empty {
   padding: 12px;
 }
+
+/* Tiles are display-only on the wall: no text selection or native dragging from them, so a
+   quick click-then-drag can't select terminal text and turn into a browser drag-and-drop. */
+.tile:not(.tile-zoomed) .tile-body,
+.tile-overlay {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}

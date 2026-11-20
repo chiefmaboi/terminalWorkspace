@@ -121,7 +121,8 @@ describe('computeWallLayout', () => {
   it.each([
     ['0.5', 2],
     ['0.4', 2],
-    ['0.33', 3]
+    ['0.33', 3],
+    ['0.25', 4]
   ] as const)('fixed mode %s uses %i columns and never exceeds its target', (mode, cols) => {
     const l = computeWallLayout(8, mode, G)
     expect(l.cols).toBe(cols)

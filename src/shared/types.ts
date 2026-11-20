@@ -34,8 +34,8 @@ export interface TerminalRuntimeState {
 export type AppTheme = 'dark' | 'light' | 'dracula' | 'nord' | 'solarized'
 
 /** Grid wall tile scale: 'auto' fits the wall (max 0.5, floor 0.33), or a fixed target scale. */
-export type TileScaleMode = 'auto' | '0.5' | '0.4' | '0.33'
-export const TILE_SCALE_MODES: readonly TileScaleMode[] = ['auto', '0.5', '0.4', '0.33']
+export type TileScaleMode = 'auto' | '0.5' | '0.4' | '0.33' | '0.25'
+export const TILE_SCALE_MODES: readonly TileScaleMode[] = ['auto', '0.5', '0.4', '0.33', '0.25']
 
 export interface AppSettings {
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean }
