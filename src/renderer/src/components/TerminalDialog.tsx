@@ -3,15 +3,17 @@ import { useAppStore } from '../store/useAppStore'
 
 interface Props {
   workspaceId: string
+  /** Prefilled project folder (the selected terminal's cwd when opened with a tile selected). */
+  initialPath?: string
   onClose: () => void
 }
 
-export default function TerminalDialog({ workspaceId, onClose }: Props): React.JSX.Element {
+export default function TerminalDialog({ workspaceId, initialPath, onClose }: Props): React.JSX.Element {
   const addTerminal = useAppStore((s) => s.addTerminal)
   const openWorkspace = useAppStore((s) => s.openWorkspace)
   const defaultStartCommand = useAppStore((s) => s.settings.defaultStartCommand)
   const [name, setName] = useState('')
-  const [projectPath, setProjectPath] = useState('')
+  const [projectPath, setProjectPath] = useState(initialPath ?? '')
   const [startCommand, setStartCommand] = useState(defaultStartCommand)
   const [error, setError] = useState<string | null>(null)
 

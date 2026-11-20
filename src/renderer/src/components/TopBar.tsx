@@ -5,8 +5,6 @@ import { useAppStore } from '../store/useAppStore'
 import { GearIcon } from './icons'
 
 interface Props {
-  /** Scale the wall actually uses (shown next to the mode), or null with no wall on screen. */
-  effectiveScale: number | null
   filesOpen: boolean
   onToggleFiles: () => void
   onNewWorkspace: () => void
@@ -142,9 +140,6 @@ export default function TopBar(props: Props): React.JSX.Element {
             </option>
           ))}
         </select>
-        {props.effectiveScale !== null && (
-          <span className="wall-scale-effective">×{props.effectiveScale.toFixed(2)}</span>
-        )}
       </label>
       <button
         className={`top-bar-button${props.filesOpen ? ' active' : ''}`}

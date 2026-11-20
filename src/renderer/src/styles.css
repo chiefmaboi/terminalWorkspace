@@ -965,11 +965,6 @@ button {
   padding: 2px 6px;
 }
 
-.wall-scale-effective {
-  min-width: 3.5em;
-  color: var(--mono-accent);
-}
-
 /* Positioned: the containing block for a maximized tile, so it covers exactly the wall. */
 .wall-viewport {
   flex: 1;

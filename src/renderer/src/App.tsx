@@ -48,13 +48,13 @@ export default function App(): React.JSX.Element {
   const setSettingsModalOpen = useAppStore((s) => s.setSettingsModalOpen)
 
   const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false)
-  const [terminalDialogWorkspaceId, setTerminalDialogWorkspaceId] = useState<string | null>(null)
+  const [terminalDialog, setTerminalDialog] = useState<{ workspaceId: string; initialPath?: string } | null>(null)
   const [filesOpen, setFilesOpen] = useState(false)
   const [showRestorePrompt, setShowRestorePrompt] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
-  const [effectiveScale, setEffectiveScale] = useState<number | null>(null)
+
   const [toasts, setToasts] = useState<Array<{ id: string; terminalId: string; name: string }>>([])
 
   const activeWorkspace = workspaces.find((w) => w.id === settings.activeWorkspaceId) ?? null
@@ -216,6 +216,25 @@ export default function App(): React.JSX.Element {
     []
   )
 
+  /**
+   * "+": new terminal in the active workspace. With a tile selected, its folder is prefilled
+   * with that terminal's current cwd (same source as the file drawer, so a shell that cd'd into a
+   * worktree hands that worktree on), falling back to its project folder.
+   */
+  async function openNewTerminalDialog(): Promise<void> {
+    if (!activeWorkspace) {
+      setWorkspaceDialogOpen(true)
+      return
+    }
+    const selected = activeWorkspace.terminals.find((t) => t.id === useAppStore.getState().focusedTerminalId)
+    if (!selected) {
+      setTerminalDialog({ workspaceId: activeWorkspace.id })
+      return
+    }
+    const cwd = await window.api.getTerminalCwd(selected.id).catch(() => null)
+    setTerminalDialog({ workspaceId: activeWorkspace.id, initialPath: cwd?.cwd ?? selected.projectPath })
+  }
+
   function applyRestore(shouldRestore: boolean): void {
     setShowRestorePrompt(false)
     if (shouldRestore && settings.activeWorkspaceId) openWorkspace(settings.activeWorkspaceId)
@@ -225,13 +244,10 @@ export default function App(): React.JSX.Element {
     <TileActionsContext.Provider value={tileActions}>
       <div className="app-shell">
         <TopBar
-          effectiveScale={activeWorkspace && activeWorkspace.terminals.length > 0 ? effectiveScale : null}
           filesOpen={filesOpen}
           onToggleFiles={() => setFilesOpen((open) => !open)}
           onNewWorkspace={() => setWorkspaceDialogOpen(true)}
-          onNewTerminal={() =>
-            activeWorkspace ? setTerminalDialogWorkspaceId(activeWorkspace.id) : setWorkspaceDialogOpen(true)
-          }
+          onNewTerminal={() => void openNewTerminalDialog()}
           onRenameWorkspace={(workspace) => setDialog({ kind: 'renameWorkspace', workspace })}
           onDeleteWorkspace={(workspace) => setDialog({ kind: 'deleteWorkspace', workspace })}
           onShortcuts={() => setShortcutsOpen(true)}
@@ -254,7 +270,7 @@ export default function App(): React.JSX.Element {
               <div className="empty-main-mark">&gt;_</div>
               <p>&quot;{activeWorkspace.name}&quot; has no terminals yet</p>
               <p className="empty-main-sub">Add one to point it at a project folder and start a session.</p>
-              <button className="primary" onClick={() => setTerminalDialogWorkspaceId(activeWorkspace.id)}>
+              <button className="primary" onClick={() => setTerminalDialog({ workspaceId: activeWorkspace.id })}>
                 Add a terminal
               </button>
             </div>
@@ -267,15 +283,19 @@ export default function App(): React.JSX.Element {
             </div>
           )}
           {activeWorkspace && activeWorkspace.terminals.length > 0 && (
-            <GridWall workspace={activeWorkspace} onLayout={setEffectiveScale} />
+            <GridWall workspace={activeWorkspace} />
           )}
           {/* Overlays the wall instead of taking space from it: the shared terminal size can't change. */}
           {filesOpen && <FileDrawer onClose={() => setFilesOpen(false)} />}
         </div>
 
         {workspaceDialogOpen && <WorkspaceDialog onClose={() => setWorkspaceDialogOpen(false)} />}
-        {terminalDialogWorkspaceId && (
-          <TerminalDialog workspaceId={terminalDialogWorkspaceId} onClose={() => setTerminalDialogWorkspaceId(null)} />
+        {terminalDialog && (
+          <TerminalDialog
+            workspaceId={terminalDialog.workspaceId}
+            initialPath={terminalDialog.initialPath}
+            onClose={() => setTerminalDialog(null)}
+          />
         )}
         {settingsModalOpen && <SettingsModal onClose={() => setSettingsModalOpen(false)} />}
         {dialog?.kind === 'renameWorkspace' && (

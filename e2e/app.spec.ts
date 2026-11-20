@@ -654,6 +654,49 @@ test.describe('grid wall', () => {
     }
   })
 
+  test('"+" prefills the folder with the selected terminal\'s current cwd, and nothing without a selection', async () => {
+    const { window } = ctx
+    const sub = mkdtempSync(join(tmpdir(), 'pitwall-plus-'))
+    const gamma = tileOf(window, 'Gamma')
+    const folderInput = window.locator('.modal .folder-row input')
+    const cancel = (): Promise<void> => window.locator('.modal-actions button', { hasText: 'Cancel' }).click()
+    try {
+      await gamma.locator('.tile-overlay').dispatchEvent('click')
+      await expect.poll(() => inTerminal(window)).toBe(true)
+      await window.keyboard.type(`cd "${sub}"`)
+      await window.keyboard.press('Enter')
+      await window.waitForTimeout(1000) // the next prompt carries the shell's cwd report
+
+      await window.locator('button.add-terminal').click()
+      await expect(folderInput).toHaveValue(osPath(sub))
+      await cancel()
+
+      // Deselect (empty wall space), then "+" starts with an empty folder.
+      const point = await window.evaluate(() => {
+        const r = document.querySelector('.wall-scroll')!.getBoundingClientRect()
+        const x = r.right - 30
+        const y = r.bottom - 20
+        return { x, y, onTile: !!document.elementFromPoint(x, y)?.closest('.tile-slot') }
+      })
+      expect(point.onTile).toBe(false)
+      await window.mouse.click(point.x, point.y)
+      await expect(window.locator('.tile.tile-selected')).toHaveCount(0)
+      await window.locator('button.add-terminal').click()
+      await expect(folderInput).toHaveValue('')
+      await cancel()
+    } finally {
+      await gamma.locator('.tile-overlay').dispatchEvent('click')
+      await window.keyboard.type(`cd "${tmpdir()}"`)
+      await window.keyboard.press('Enter')
+      await window.waitForTimeout(500)
+      try {
+        rmSync(sub, { recursive: true, force: true })
+      } catch {
+        // best effort
+      }
+    }
+  })
+
   test('a press moving under 5px is still a click; past it the tile drags and reorders (persisted)', async () => {
     const { window } = ctx
     await window.locator('.wall-scroll').evaluate((el) => (el.scrollTop = 0))

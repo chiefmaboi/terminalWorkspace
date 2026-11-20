@@ -27,8 +27,6 @@ const ARROWS: Record<string, Direction> = {
 
 interface Props {
   workspace: Workspace
-  /** Reports the effective tile scale (top bar shows it). */
-  onLayout?: (scale: number | null) => void
 }
 
 interface Measured {
@@ -65,7 +63,7 @@ interface DragState {
  * key goes to the terminal). Clicking empty wall space or the dim behind a zoomed pane returns
  * to wall mode; App handles Ctrl+Shift+Enter and Esc.
  */
-export default function GridWall({ workspace, onLayout }: Props): React.JSX.Element {
+export default function GridWall({ workspace }: Props): React.JSX.Element {
   const tileScale = useAppStore((s) => s.settings.tileScale)
   const focusedTerminalId = useAppStore((s) => s.focusedTerminalId)
   const zoomedTerminalId = useAppStore((s) => s.maximizedTerminalId)
@@ -137,10 +135,6 @@ export default function GridWall({ workspace, onLayout }: Props): React.JSX.Elem
     [tiles.length, pinnedCount, tileScale, hostWidth, hostHeight, measured]
   )
 
-  useEffect(() => {
-    onLayout?.(layout.scale)
-  }, [layout.scale, onLayout])
-  useEffect(() => () => onLayout?.(null), [onLayout])
 
   // The shared geometry changed (debounced window resize): refit every terminal to the new
   // full size; registry.fit() resizes only the PTYs whose cols/rows actually changed.
