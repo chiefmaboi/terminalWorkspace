@@ -111,9 +111,9 @@ export default function GridWall({ workspace }: Props): React.JSX.Element {
   const tiles = useMemo(() => [...workspace.terminals].sort((a, b) => a.order - b.order), [workspace.terminals])
   const pinnedCount = tiles.filter((t) => t.pinned).length
 
-  // Shared terminal geometry = the zoomed pane's body (88% of the window). Every terminal always
-  // has exactly these cols/rows, tiled, pinned or zoomed, so none of those ever resizes a PTY.
-  const zoom = measured
+  // The box every terminal is displayed in = the zoomed pane's body at 88% of the window. Tiles
+  // are this box scaled down, so the wall's layout depends only on it.
+  const box = measured
     ? zoomRect(
         measured.viewportWidth,
         measured.viewportHeight,
@@ -122,8 +122,8 @@ export default function GridWall({ workspace }: Props): React.JSX.Element {
         measured.viewportTop
       )
     : { left: 0, top: 0, width: 0, height: 0 }
-  const hostWidth = measured ? zoom.width : 0
-  const hostHeight = measured ? zoom.height - TILE_HEADER_PX : 0
+  const hostWidth = measured ? box.width : 0
+  const hostHeight = measured ? box.height - TILE_HEADER_PX : 0
 
   const layout = useMemo(
     () =>
@@ -137,16 +137,38 @@ export default function GridWall({ workspace }: Props): React.JSX.Element {
   )
 
 
-  // Terminal width option. 'fill' (the original layout): the base font, as many columns as fit.
-  // A column count: the font size that makes exactly that many columns fill the same width, so
-  // the wall and the zoomed pane keep their size and tiles just show bigger text. Applied during
-  // render (idempotent) so terminals the tiles create in their effects, which run before this
-  // component's, already get it.
-  const fontSize = useMemo(() => {
-    if (terminalWidth === 'fill' || !hostWidth) return terminals.BASE_FONT_SIZE
-    return terminals.fontSizeForColumns(Number(terminalWidth), hostWidth) ?? terminals.BASE_FONT_SIZE
-  }, [terminalWidth, hostWidth])
-  terminals.setFontSize(fontSize)
+  // The terminals themselves (shared geometry: every terminal always has exactly these
+  // cols/rows, tiled, pinned or zoomed, so none of those ever resizes a PTY).
+  //  - 'fill' (the original layout): the box itself, at the base font.
+  //  - A column count: exactly that many columns at the zoomed text size (smaller if that does
+  //    not fit the box), with the box's shape. The zoomed pane shows it at that natural size,
+  //    centered (smaller than 88%); tiles keep their boxes and show it scaled (contentScale), so
+  //    their text only depends on that many columns spanning the tile.
+  // Applied during render (idempotent) so terminals the tiles create in their effects, which run
+  // before this component's, already get the font.
+  const geometry = useMemo(() => {
+    const fill = { fontSize: terminals.BASE_FONT_SIZE, width: hostWidth, height: hostHeight }
+    if (terminalWidth === 'fill' || !hostWidth || !hostHeight) return fill
+    const columns = Number(terminalWidth)
+    const fitting = terminals.fontSizeForColumns(columns, hostWidth)
+    if (!fitting) return fill
+    const fontSize = Math.min(terminals.COLUMNS_ZOOM_FONT_SIZE, fitting)
+    const width = Math.min(hostWidth, terminals.widthForColumns(columns, fontSize) ?? hostWidth)
+    return { fontSize, width, height: Math.round((width * hostHeight) / hostWidth) }
+  }, [terminalWidth, hostWidth, hostHeight])
+  terminals.setFontSize(geometry.fontSize)
+  const contentScale = geometry.width > 0 && hostWidth > 0 ? hostWidth / geometry.width : 1
+  const zoom =
+    measured && geometry.width !== hostWidth
+      ? zoomRect(
+          measured.viewportWidth,
+          measured.viewportHeight,
+          measured.windowWidth,
+          measured.windowHeight,
+          measured.viewportTop,
+          { width: geometry.width, height: geometry.height + TILE_HEADER_PX }
+        )
+      : box
 
   // The shared geometry or the font changed (debounced window resize, width option): refit
   // every terminal; registry.fit() resizes only the PTYs whose cols/rows actually changed.
@@ -154,7 +176,7 @@ export default function GridWall({ workspace }: Props): React.JSX.Element {
     if (!hostWidth || !hostHeight) return
     const raf = requestAnimationFrame(() => terminals.fitAll())
     return () => cancelAnimationFrame(raf)
-  }, [hostWidth, hostHeight, fontSize])
+  }, [geometry.width, geometry.height, geometry.fontSize])
 
   // ── Drag to reorder ────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -260,8 +282,9 @@ export default function GridWall({ workspace }: Props): React.JSX.Element {
   }, [tiles])
 
   const vars = {
-    '--host-w': `${hostWidth}px`,
-    '--host-h': `${hostHeight}px`,
+    '--host-w': `${geometry.width}px`,
+    '--host-h': `${geometry.height}px`,
+    '--content-scale': String(contentScale),
     '--tile-w': `${layout.tileWidth}px`,
     '--tile-body-h': `${layout.tileBodyHeight}px`,
     '--tile-scale': String(layout.scale),

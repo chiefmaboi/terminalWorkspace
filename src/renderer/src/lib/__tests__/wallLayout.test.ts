@@ -53,6 +53,14 @@ describe('zoomRect', () => {
     expect(short.top + short.height).toBeLessThanOrEqual(260)
   })
 
+  it('takes an explicit size (the column width option), still window-centered and clamped', () => {
+    const r = zoomRect(1600, 910, 1600, 950, 40, { width: 1000, height: 600 })
+    expect(r).toEqual({ left: 300, top: Math.floor((950 - 600) / 2) - 40, width: 1000, height: 600 })
+    const tooBig = zoomRect(1600, 910, 1600, 950, 40, { width: 2000, height: 1200 })
+    expect(tooBig.width).toBe(1600)
+    expect(tooBig.height).toBe(910)
+  })
+
   it('always leaves room for the header plus at least one body pixel', () => {
     const r = zoomRect(0, 0)
     expect(r.width).toBeGreaterThanOrEqual(1)

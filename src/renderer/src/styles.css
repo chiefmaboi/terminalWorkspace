@@ -1060,7 +1060,9 @@ button {
   left: 0;
   width: var(--host-w);
   height: var(--host-h);
-  transform: scale(var(--slot-scale, var(--tile-scale)));
+  /* --content-scale: the width option with a column count makes terminals narrower than the box
+     their tile shows; 1 otherwise. */
+  transform: scale(calc(var(--slot-scale, var(--tile-scale)) * var(--content-scale, 1)));
   transform-origin: 0 0;
 }
 

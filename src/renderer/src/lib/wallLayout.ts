@@ -24,16 +24,21 @@ export interface ZoomRect {
  * `viewportTop` px below the window top, under the top bar). The window size defaults to the
  * viewport's. The pane's body (this minus the header) is also the shared terminal geometry, so
  * zooming in or out never changes any terminal's cols/rows.
+ *
+ * `size` (the pane's full size, header included) replaces the 88% default: the width option with a
+ * column count shows its terminal at that natural size, smaller than 88%.
  */
 export function zoomRect(
   viewportWidth: number,
   viewportHeight: number,
   windowWidth = viewportWidth,
   windowHeight = viewportHeight,
-  viewportTop = 0
+  viewportTop = 0,
+  size?: { width: number; height: number }
 ): ZoomRect {
-  const width = Math.max(1, Math.min(viewportWidth, Math.round(windowWidth * ZOOM_FRACTION)))
-  const height = Math.max(TILE_HEADER_PX + 1, Math.min(viewportHeight, Math.round(windowHeight * ZOOM_FRACTION)))
+  const wanted = size ?? { width: windowWidth * ZOOM_FRACTION, height: windowHeight * ZOOM_FRACTION }
+  const width = Math.max(1, Math.min(viewportWidth, Math.round(wanted.width)))
+  const height = Math.max(TILE_HEADER_PX + 1, Math.min(viewportHeight, Math.round(wanted.height)))
   const centeredTop = Math.floor((windowHeight - height) / 2) - viewportTop
   return {
     left: Math.floor((viewportWidth - width) / 2),

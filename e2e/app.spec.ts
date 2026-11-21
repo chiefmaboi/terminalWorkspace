@@ -613,15 +613,37 @@ test.describe('grid wall', () => {
       return Number(match.split('=')[1])
     }
 
+    const errors: string[] = []
+    const onError = (e: Error): number => errors.push(e.message)
+    window.on('pageerror', onError)
+    /** Zoom Alpha, return the zoomed pane's size, restore. */
+    const zoomedSize = async (): Promise<{ width: number; height: number }> => {
+      await alpha.locator('.tile-overlay').dispatchEvent('dblclick')
+      const pane = window.locator('.tile-zoomed')
+      await expect(pane).toBeVisible()
+      await window.waitForTimeout(300) // past the zoom animation
+      const size = (await pane.boundingBox())!
+      await window.locator('.wall-dim').click({ position: { x: 2, y: 2 } })
+      await expect(pane).toHaveCount(0)
+      return size
+    }
+
     const box = await alpha.boundingBox()
     expect(await shellColumns('FILLCOLS')).toBeGreaterThan(120)
+    const fillZoom = await zoomedSize()
 
     await width.selectOption('120')
     await expect.poll(() => shellColumns('NARROWCOLS')).toBe(120)
     expect(await alpha.boundingBox()).toEqual(box) // the wall itself doesn't change
+    // The zoomed view shows those 120 columns at a normal text size: smaller than Fill's pane.
+    const narrowZoom = await zoomedSize()
+    expect(narrowZoom.width).toBeLessThan(fillZoom.width)
+    expect(await shellColumns('AFTERZOOM')).toBe(120) // zooming never resizes a terminal
 
     await width.selectOption('fill')
     await expect.poll(() => shellColumns('BACKCOLS')).toBeGreaterThan(120)
+    window.off('pageerror', onError)
+    expect(errors).toEqual([])
   })
 
   // macOS reports cwd through /private symlinks; compare against the resolved path there.
