@@ -1,4 +1,16 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, Notification, session, Tray, Menu, nativeImage } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  Notification,
+  session,
+  Tray,
+  Menu,
+  nativeImage,
+  clipboard
+} from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { readFileSync, writeFileSync, promises as fsPromises } from 'fs'
@@ -640,6 +652,30 @@ function registerIpcHandlers(): void {
 
   ipcMain.on(IPC.ptyInput, (_event, terminalId: string, data: string) => {
     ptyManager.write(terminalId, data)
+  })
+
+  // Right-click in a zoomed terminal. Paste goes through the same native paste as Ctrl+V, into
+  // the terminal the renderer just focused, so bracketed paste applies exactly as it does there.
+  ipcMain.on(IPC.terminalContextMenu, (event, selection: unknown) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return
+    const text = typeof selection === 'string' ? selection : ''
+    Menu.buildFromTemplate([
+      {
+        label: 'Copy',
+        accelerator: 'Ctrl+C',
+        registerAccelerator: false,
+        enabled: text.length > 0,
+        click: () => clipboard.writeText(text)
+      },
+      {
+        label: 'Paste',
+        accelerator: 'Ctrl+V',
+        registerAccelerator: false,
+        enabled: clipboard.readText().length > 0,
+        click: () => event.sender.paste()
+      }
+    ]).popup({ window })
   })
 
   ipcMain.on(IPC.ptyResize, (_event, terminalId: string, cols: number, rows: number) => {

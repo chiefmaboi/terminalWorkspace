@@ -71,6 +71,8 @@ const api = {
   ptyStart: (id: string, cols: number, rows: number): Promise<void> =>
     ipcRenderer.invoke(IPC.ptyStart, id, cols, rows),
   ptyInput: (id: string, data: string): void => ipcRenderer.send(IPC.ptyInput, id, data),
+  /** Right-click menu of a zoomed terminal: Copy (`selection`) / Paste (into the focused terminal). */
+  terminalContextMenu: (selection: string): void => ipcRenderer.send(IPC.terminalContextMenu, selection),
   ptyResize: (id: string, cols: number, rows: number): void =>
     ipcRenderer.send(IPC.ptyResize, id, cols, rows),
   /** Flow control: report that `chars` characters of pty:data were parsed by xterm. */

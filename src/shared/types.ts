@@ -179,6 +179,7 @@ export const IPC = {
   ptySetPriority: 'pty:setPriority',
   ptyGetCwd: 'pty:getCwd',
   terminalSetPinned: 'terminal:setPinned',
+  terminalContextMenu: 'terminal:contextMenu',
 
   statusChanged: 'status:changed',
   gitBranchChanged: 'git:branchChanged',

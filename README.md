@@ -54,6 +54,8 @@ Codex needs no hooks: version 0.163 or newer reports its status on its own outpu
 | Click / double-click a tile | Type into it / zoom it |
 | Mouse wheel | Scrolls the terminal you're typing into; over any other tile, the wall |
 | Ctrl+C / Ctrl+Shift+C | Copy the selection (with nothing selected, Ctrl+C interrupts as usual) |
+| Shift+Enter | New line in Claude Code instead of sending (same as Alt+Enter) |
+| Right-click | Pin a tile 2x2; in a zoomed tile, Copy / Paste |
 | Esc | Restore a zoomed tile (when focus is not in a terminal) |
 | Ctrl+Shift+E | File drawer |
 | Ctrl+1 ... Ctrl+9 | Switch workspace |

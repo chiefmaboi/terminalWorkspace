@@ -133,6 +133,14 @@ function create(id: string): TerminalEntry {
       if (text) void navigator.clipboard.writeText(text).catch(() => undefined)
       return false
     }
+    // Shift+Enter starts a new line in Claude Code instead of sending the prompt. It sends ESC CR
+    // (what Alt+Enter sends), the sequence Claude's own /terminal-setup binds Shift+Enter to in
+    // VS Code's terminal, which is the same xterm.js + ConPTY stack. Shells see Alt+Enter.
+    if (event.key === 'Enter' && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      if (event.type === 'keydown') term.input('\x1b\r')
+      event.preventDefault()
+      return false
+    }
     if (event.type === 'keydown' && entry.keyHook?.(event)) return false
     return true
   })
@@ -220,6 +228,11 @@ export function fit(id: string): void {
 
 export function fitAll(): void {
   for (const id of entries.keys()) fit(id)
+}
+
+/** The text selected in terminal `id` ('' when nothing is). */
+export function selectionText(id: string): string {
+  return entries.get(id)?.term.getSelection() ?? ''
 }
 
 /** Whether terminal `id` has the keyboard focus (you're typing into it). */

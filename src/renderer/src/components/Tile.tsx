@@ -223,11 +223,15 @@ export default function Tile({ terminal, selected, zoomed, slotStyle, dragging, 
         data-terminal-id={id}
         data-status={status}
         onContextMenu={(e) => {
-          // Right-click pins/unpins (2x2 on the wall). Inside a zoomed pane the terminal keeps
-          // the browser's default context menu (copy/paste).
-          if (zoomedLayout) return
+          // Right-click pins/unpins (2x2 on the wall). Inside a zoomed pane it opens Copy /
+          // Paste; focusing first makes Paste land in this terminal.
           e.preventDefault()
-          togglePinned(id)
+          if (zoomedLayout) {
+            terminals.focus(id)
+            window.api.terminalContextMenu(terminals.selectionText(id))
+          } else {
+            togglePinned(id)
+          }
         }}
       >
         {/* Status/selection ring as its own layer: it stacks above the wall's dim overlay, so

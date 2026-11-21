@@ -437,6 +437,97 @@ test.describe('grid wall', () => {
     await expect(window.locator('.tile-zoomed')).toHaveCount(0)
   })
 
+  test("Shift+Enter sends ESC CR (Claude Code's new line); right-click in a zoomed pane offers Copy / Paste", async () => {
+    const { app, window } = ctx
+    const gamma = tileOf(window, 'Gamma')
+    type Probe = {
+      __input: string[]
+      __onInput: (...args: unknown[]) => void
+      __menu: { items: Array<{ label: string; enabled: boolean; click: () => void }> } | null
+      __popup: unknown
+    }
+    // Record what reaches the ptys, and capture the context menu instead of showing it.
+    await app.evaluate(({ ipcMain, Menu }) => {
+      const g = globalThis as unknown as Probe
+      g.__input = []
+      g.__onInput = (_event, _id, data) => g.__input.push(data as string)
+      ipcMain.on('pty:input', g.__onInput)
+      g.__menu = null
+      g.__popup = Menu.prototype.popup
+      Menu.prototype.popup = function (this: Probe['__menu']) {
+        ;(globalThis as unknown as Probe).__menu = this
+      }
+    })
+    const input = (): Promise<string> =>
+      app.evaluate(() => (globalThis as unknown as Probe).__input.join(''))
+    const menu = (): Promise<Array<{ label: string; enabled: boolean }> | null> =>
+      app.evaluate(() => {
+        const m = (globalThis as unknown as Probe).__menu
+        return m && m.items.map((i) => ({ label: i.label, enabled: i.enabled }))
+      })
+    const choose = (label: string): Promise<void> =>
+      app.evaluate((_electron, l) => {
+        const g = globalThis as unknown as Probe
+        g.__menu!.items.find((i) => i.label === l)!.click()
+        g.__menu = null
+      }, label)
+    const clipboard = (): Promise<string> => app.evaluate(({ clipboard }) => clipboard.readText())
+    const setClipboard = (text: string): Promise<void> =>
+      app.evaluate(({ clipboard }, t) => clipboard.writeText(t), text)
+    try {
+      await gamma.locator('.tile-overlay').dblclick()
+      await expect(gamma).toHaveClass(/tile-zoomed/)
+      await expect.poll(() => inTerminal(window)).toBe(true)
+
+      // ESC CR and never a bare CR (Enter). Other bytes, like focus reports, may come along.
+      await window.keyboard.press('Shift+Enter')
+      await expect.poll(input).toContain('\x1b\r')
+      expect(JSON.stringify((await input()).replaceAll('\x1b\r', ''))).not.toContain('\\r')
+
+      // Nothing selected: Copy is disabled; Paste pastes the clipboard into this terminal.
+      await setClipboard('pasted-by-menu')
+      await gamma.locator('.xterm-screen').click({ button: 'right' })
+      await expect.poll(menu).toEqual([
+        { label: 'Copy', enabled: false },
+        { label: 'Paste', enabled: true }
+      ])
+      await choose('Paste')
+      await expect.poll(input).toContain('pasted-by-menu')
+      await expect(gamma.locator('.xterm-screen')).toContainText('pasted-by-menu')
+      await window.keyboard.press('Control+C')
+
+      // A selection: Copy copies it.
+      await window.keyboard.type('echo menu-copy')
+      await window.keyboard.press('Enter')
+      const row = gamma.locator('.xterm-rows > div', { hasText: /^menu-copy\s*$/ }).last()
+      await expect(row).toBeVisible()
+      const box = (await row.boundingBox())!
+      await window.mouse.move(box.x + 1, box.y + box.height / 2)
+      await window.mouse.down()
+      await window.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 10 })
+      await window.mouse.up()
+      await setClipboard('unchanged')
+      await gamma.locator('.xterm-screen').click({ button: 'right', position: { x: box.width / 4, y: 10 } })
+      await expect.poll(menu).toEqual([
+        { label: 'Copy', enabled: true },
+        { label: 'Paste', enabled: true }
+      ])
+      await choose('Copy')
+      expect(await clipboard()).toBe('menu-copy')
+      // Zoomed right-click never pins.
+      await expect(gamma).not.toHaveClass(/tile-pinned/)
+      await expect(window.locator('.tile-slot.tile-pinned')).toHaveCount(0)
+    } finally {
+      await app.evaluate(({ ipcMain, Menu }) => {
+        const g = globalThis as unknown as Probe
+        ipcMain.removeListener('pty:input', g.__onInput)
+        Menu.prototype.popup = g.__popup as typeof Menu.prototype.popup
+      })
+    }
+    await window.keyboard.press('Control+Shift+Enter')
+    await expect(window.locator('.tile-zoomed')).toHaveCount(0)
+  })
+
   test('a burst of window resizes is debounced into one pty resize per terminal', async () => {
     const { app, window } = ctx
     const before = await ptyResizeCount()
