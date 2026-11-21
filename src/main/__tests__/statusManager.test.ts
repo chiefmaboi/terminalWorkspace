@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HOOK_WORKING_SILENCE_MS, StatusManager } from '../statusManager'
+import { AGENT_WORKING_SILENCE_MS, StatusManager } from '../statusManager'
 import { stateForClaudeHook } from '../hookEvents'
 
 const DEBOUNCE = 1200
@@ -57,7 +57,7 @@ describe('StatusManager', () => {
     sm.noteInput('t', '\r')
     sm.signal({ terminalId: 't', state: 'waiting', source: 'osc', message: 'needs you' })
     expect(sm.get('t')).toBe('waiting')
-    vi.advanceTimersByTime(HOOK_WORKING_SILENCE_MS * 2)
+    vi.advanceTimersByTime(AGENT_WORKING_SILENCE_MS * 2)
     expect(sm.get('t')).toBe('waiting')
   })
 
@@ -76,7 +76,7 @@ describe('StatusManager', () => {
     sm.signal({ terminalId: 't', state: 'working', source: 'hook' })
     vi.advanceTimersByTime(DEBOUNCE * 5)
     expect(sm.get('t')).toBe('working') // thinking quietly is fine
-    vi.advanceTimersByTime(HOOK_WORKING_SILENCE_MS)
+    vi.advanceTimersByTime(AGENT_WORKING_SILENCE_MS)
     // e.g. the user interrupted with Esc: Claude Code's Stop hook doesn't fire for that.
     expect(sm.get('t')).toBe('idle')
   })
@@ -129,6 +129,77 @@ describe('StatusManager', () => {
     })
     sm.signal({ terminalId: 't', state: 'waiting', source: 'hook' })
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  describe('a program reporting its own status (OSC 7501)', () => {
+    it('maps straight to the status and outranks hooks, notification escapes and input', () => {
+      const { sm, listener } = setup()
+      sm.program('t', 'working')
+      expect(sm.get('t')).toBe('working')
+      expect(sm.isProgramReporting('t')).toBe(true)
+      sm.signal({ terminalId: 't', state: 'waiting', source: 'hook' }) // e.g. a PermissionRequest routed to a reviewer
+      sm.signal({ terminalId: 't', state: 'waiting', source: 'osc' }) // its own OSC 9 notification
+      expect(sm.get('t')).toBe('working')
+      sm.program('t', 'waiting', 'Waiting for your approval')
+      expect(listener).toHaveBeenLastCalledWith('t', 'waiting', {
+        previous: 'working',
+        source: 'program',
+        message: 'Waiting for your approval'
+      })
+      sm.noteInput('t', '\r') // Enter alone doesn't prove the wait is over
+      sm.signal({ terminalId: 't', state: 'idle', source: 'hook' })
+      expect(sm.get('t')).toBe('waiting')
+      sm.program('t', 'working')
+      sm.program('t', 'idle')
+      expect(sm.get('t')).toBe('idle')
+    })
+
+    it('keeps waiting for as long as it says so, however quiet the terminal is', () => {
+      const { sm } = setup()
+      sm.program('t', 'waiting')
+      vi.advanceTimersByTime(AGENT_WORKING_SILENCE_MS * 10)
+      expect(sm.get('t')).toBe('waiting')
+      expect(sm.isProgramReporting('t')).toBe(true)
+    })
+
+    it('a reported working survives the short debounce; a long silence ends it and its precedence', () => {
+      const { sm } = setup()
+      sm.program('t', 'working')
+      vi.advanceTimersByTime(DEBOUNCE * 5)
+      expect(sm.get('t')).toBe('working')
+      vi.advanceTimersByTime(AGENT_WORKING_SILENCE_MS)
+      expect(sm.get('t')).toBe('idle')
+      expect(sm.isProgramReporting('t')).toBe(false) // killed outright: the other sources count again
+      sm.signal({ terminalId: 't', state: 'waiting', source: 'hook' })
+      expect(sm.get('t')).toBe('waiting')
+    })
+
+    it('stops counting on clear (idle), and on exit / reset', () => {
+      const { sm } = setup()
+      sm.program('t', 'waiting')
+      sm.program('t', null)
+      expect(sm.get('t')).toBe('idle')
+      expect(sm.isProgramReporting('t')).toBe(false)
+      sm.noteInput('t', '\r')
+      expect(sm.get('t')).toBe('working') // input counts again
+
+      sm.program('u', 'working')
+      sm.reset('u')
+      expect(sm.isProgramReporting('u')).toBe(false)
+      sm.program('v', 'waiting')
+      sm.signal({ terminalId: 'v', state: 'idle', source: 'exit' })
+      expect(sm.get('v')).toBe('idle')
+      expect(sm.isProgramReporting('v')).toBe(false)
+    })
+
+    it('a stray clear for a terminal that never reported changes nothing', () => {
+      const { sm, listener } = setup()
+      sm.noteInput('t', '\r')
+      listener.mockClear()
+      sm.program('t', null)
+      expect(sm.get('t')).toBe('working')
+      expect(listener).not.toHaveBeenCalled()
+    })
   })
 
   it('supports unsubscribing', () => {

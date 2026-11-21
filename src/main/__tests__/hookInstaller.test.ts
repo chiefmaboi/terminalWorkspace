@@ -190,6 +190,28 @@ describe('HookInstaller: Codex', () => {
     expect(await statusOf('codex')).toBe('installed')
   })
 
+  it('an install from before SessionEnd was dropped shows as outdated; updating removes only that entry', async () => {
+    mkdirSync(codexDir, { recursive: true })
+    expect(CODEX_EVENTS).not.toContain('SessionEnd')
+    const relay = {
+      type: 'command',
+      command: posixRelayCommand('codex'),
+      commandWindows: windowsRelayCommand(script, 'codex'),
+      timeout: 3,
+      async: true
+    }
+    const userGroup = { hooks: [{ type: 'command', command: 'python scribe.py' }] }
+    const old: Record<string, unknown[]> = { SessionEnd: [userGroup, { hooks: [relay] }] }
+    for (const event of CODEX_EVENTS) old[event] = [{ hooks: [relay] }]
+    writeFileSync(join(codexDir, 'hooks.json'), JSON.stringify({ hooks: old }, null, 2))
+    expect(await statusOf('codex')).toBe('outdated')
+    expect((await install('codex')).ok).toBe(true)
+    const hooks = readJson(join(codexDir, 'hooks.json')).hooks as Record<string, unknown[]>
+    expect(hooks.SessionEnd).toEqual([userGroup]) // the user's own SessionEnd hook stays, at index 0
+    for (const event of CODEX_EVENTS) expect(hooks[event]).toEqual([{ hooks: [relay] }]) // untouched: trust kept
+    expect(await statusOf('codex')).toBe('installed')
+  })
+
   it('the relay command is guarded, silent and always exits 0', () => {
     const cmd = posixRelayCommand('codex')
     expect(cmd.startsWith('[ -n "$PITWALL_TOKEN" ] && [ -n "$PITWALL_HOOK_URL" ] &&')).toBe(true)

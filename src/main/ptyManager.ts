@@ -2,10 +2,10 @@ import * as pty from 'node-pty'
 import treeKill from 'tree-kill'
 import os from 'os'
 import { OscStream } from './oscStream'
+import type { OscEvent } from './oscStream'
 import { buildPtyEnv } from './ptyEnv'
 import { foregroundCwd } from './processCwd'
-import { CODEX_SESSION_SUBCOMMANDS, CODEX_SUBCOMMANDS, withCodexNoDaemon } from './codexNoDaemon'
-import type { PaneCwd } from '../shared/types'
+import type { PaneCwd, TerminalStatus } from '../shared/types'
 import type { StatusManager } from './statusManager'
 
 const DEFAULT_SHELL = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL ?? 'bash')
@@ -20,11 +20,6 @@ const DEFAULT_SHELL = process.platform === 'win32' ? 'powershell.exe' : (process
 // no API for reading another process's cwd, and PowerShell's `cd` doesn't change its process cwd
 // anyway, so the shell telling us is the only reliable signal. The user's prompt (profile,
 // oh-my-posh, ...) is wrapped, not replaced, and renders exactly as before.
-//
-// It also wraps `codex` so that interactive Codex typed in a Pitwall terminal runs with
-// --no-daemon (see codexNoDaemon.ts for why); the real executable is resolved from PATH and every
-// other invocation passes through untouched.
-const psList = (items: readonly string[]): string => items.map((s) => `'${s}'`).join(', ')
 export const POWERSHELL_INTEGRATION = [
   '$global:__pitwallPrompt = $function:prompt',
   'function global:prompt {',
@@ -32,16 +27,32 @@ export const POWERSHELL_INTEGRATION = [
   "  $osc = ''",
   "  if ($loc.Provider.Name -eq 'FileSystem') { $osc = \"$([char]27)]9;9;`\"$($loc.ProviderPath)`\"$([char]27)\\\" }",
   '  if ($global:__pitwallPrompt) { $osc + (& $global:__pitwallPrompt) } else { $osc + "PS $loc> " }',
-  '}',
-  'function global:codex {',
-  "  $real = Get-Command codex -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1",
-  "  if (-not $real) { Write-Error 'codex: command not found'; return }",
-  "  $first = $args | Where-Object { \"$_\" -notlike '-*' } | Select-Object -First 1",
-  `  $sub = @(${psList(CODEX_SUBCOMMANDS)}) -contains "$first"`,
-  `  $session = (-not $sub) -or (@(${psList(CODEX_SESSION_SUBCOMMANDS)}) -contains "$first")`,
-  "  if ($session -and -not ($args -contains '--no-daemon')) { & $real.Source --no-daemon @args } else { & $real.Source @args }",
   '}'
 ].join('\n')
+
+type ProgramEvent = Extract<OscEvent, { kind: 'program' }>
+
+/** OSC 7501 program state -> terminal status; null: the program stopped reporting. */
+function programStatus(event: ProgramEvent): TerminalStatus | null {
+  switch (event.state) {
+    case 'working':
+      return 'working'
+    case 'blocked':
+      return 'waiting'
+    case 'clear':
+      return null
+    default:
+      return 'idle' // idle, done, error
+  }
+}
+
+// Desktop notification text for a program that is blocked on the user. Deliberately generic:
+// what it wants approved (a command line, for instance) can contain secrets.
+const BLOCKED_MESSAGES: Record<string, string> = {
+  permission: 'Waiting for your approval',
+  question: 'Has a question for you',
+  auth: 'Waiting for you to sign in'
+}
 
 const SHELL_ARGS =
   process.platform === 'darwin'
@@ -84,6 +95,8 @@ interface Session {
   reportedCwd: string | null
   /** The agent's cwd from its hook events (e.g. a worktree it moved into), while it runs. */
   agentCwd: string | null
+  /** Programs (OSC 7501 app=) that have reported their own status in this shell. */
+  programApps: Set<string>
   /** Streaming OSC parser: attention notifications and cwd reports, split-chunk safe. */
   osc: OscStream
 }
@@ -142,6 +155,7 @@ export class PtyManager {
       startCwd: cwd,
       reportedCwd: null,
       agentCwd: null,
+      programApps: new Set(),
       osc: new OscStream()
     }
     this.sessions.set(terminalId, session)
@@ -157,11 +171,17 @@ export class PtyManager {
       for (const event of session.osc.feed(data)) {
         if (event.kind === 'attention') {
           this.statusManager.signal({ terminalId, state: 'waiting', source: 'osc', message: event.message })
+        } else if (event.kind === 'program') {
+          if (event.app) session.programApps.add(event.app)
+          const message = event.blockedKind ? BLOCKED_MESSAGES[event.blockedKind] : undefined
+          this.statusManager.program(terminalId, programStatus(event), message)
         } else {
           session.reportedCwd = event.path
           // A prompt's cwd report means the shell is back in the foreground: any agent that
-          // was running in this terminal has exited, so its cwd no longer applies.
+          // was running in this terminal has exited, so its cwd and its own status reports no
+          // longer apply.
           session.agentCwd = null
+          this.statusManager.program(terminalId, null)
         }
       }
       this.enqueue(session, data)
@@ -179,9 +199,7 @@ export class PtyManager {
     })
 
     if (startCommand && startCommand.trim().length > 0) {
-      // Interactive Codex gets --no-daemon here too, so it also applies on macOS/Linux shells,
-      // which have no Pitwall wrapper for typed commands.
-      proc.write(`${withCodexNoDaemon(startCommand)}${os.EOL}`)
+      proc.write(`${startCommand}${os.EOL}`)
     }
   }
 
@@ -204,6 +222,11 @@ export class PtyManager {
   }
 
   /** The agent running in this terminal reported its cwd through a hook (null: it ended). */
+  /** Whether `app` has reported its own status (OSC 7501) in this terminal's current shell. */
+  hasProgramReported(terminalId: string, app: string): boolean {
+    return this.sessions.get(terminalId)?.programApps.has(app) ?? false
+  }
+
   setAgentCwd(terminalId: string, cwd: string | null): void {
     const session = this.sessions.get(terminalId)
     if (session) session.agentCwd = cwd

@@ -17,6 +17,8 @@ const attention = (message: string, source: 'osc9' | 'osc777' | 'osc99' = 'osc9'
   message
 })
 const cwd = (path: string): OscEvent => ({ kind: 'cwd', path })
+const program = (state: string, app: string | null = 'codex', blockedKind: string | null = null): OscEvent =>
+  ({ kind: 'program', state, app, blockedKind }) as OscEvent
 
 describe('OscStream: attention', () => {
   it('ignores plain text and unrelated OSC codes (window title)', () => {
@@ -68,17 +70,54 @@ describe('OscStream: working directory', () => {
   })
 })
 
+describe('OscStream: program status (OSC 7501)', () => {
+  it("reads Codex's reports: state, app, and the blocked kind", () => {
+    expect(
+      parse(
+        `${ESC}]7501;state=working:app=codex${ST}`,
+        `${ESC}]7501;state=blocked:app=codex:kind=permission${ST}`,
+        `${ESC}]7501;state=blocked:app=codex:kind=question${BEL}`,
+        `${ESC}]7501;state=done:app=codex${ST}${ESC}]7501;state=idle:app=codex${ST}${ESC}]7501;state=clear${ST}`
+      )
+    ).toEqual([
+      program('working'),
+      program('blocked', 'codex', 'permission'),
+      program('blocked', 'codex', 'question'),
+      program('done'),
+      program('idle'),
+      program('clear', null)
+    ])
+  })
+
+  it('takes keys in any order, ignores unknown ones, and keeps kind only for blocked', () => {
+    expect(parse(`${ESC}]7501;id=build/step:app=make:progress=40:state=working:kind=permission:msg=x${ST}`)).toEqual([
+      program('working', 'make')
+    ])
+    expect(parse(`${ESC}]7501;state=error${ST}`)).toEqual([program('error', null)])
+  })
+
+  it('ignores the feature query, missing or unknown states, and invalid app names', () => {
+    expect(parse(`${ESC}]7501;?${ST}`)).toEqual([])
+    expect(parse(`${ESC}]7501;app=codex${ST}`)).toEqual([])
+    expect(parse(`${ESC}]7501;state=sleeping:app=codex${ST}`)).toEqual([])
+    expect(parse(`${ESC}]7501;state=idle:app=no spaces allowed${ST}`)).toEqual([program('idle', null)])
+  })
+})
+
 describe('OscStream: streaming', () => {
-  // A realistic mix: prompt cwd report, output, a notification, a title, a progress update.
+  // A realistic mix: prompt cwd report, output, a notification, a title, a progress update, a
+  // program status report.
   const stream =
     `${ESC}]9;9;"C:\\repo"${ST}PS C:\\repo> claude\r\n` +
     `thinking...${ESC}]0;claude${BEL}${ESC}]9;4;1;30${BEL}` +
     `${ESC}]777;notify;Claude;Approve edit?${BEL}more output${ESC}]9;waiting on you${C1_ST}` +
+    `${ESC}]7501;state=blocked:app=codex:kind=permission${ST}` +
     `${ESC}]7;file://host/C:/repo/.worktrees/feat${ST}done`
   const expected = [
     cwd('C:\\repo'),
     attention('Claude: Approve edit?', 'osc777'),
     attention('waiting on you'),
+    program('blocked', 'codex', 'permission'),
     cwd('C:\\repo\\.worktrees\\feat')
   ]
 

@@ -50,7 +50,10 @@ export function stateForClaudeHook(eventName: string): TerminalStatus | null {
 
 /**
  * Codex hook events. Codex has no Notification event: "needs you" is PermissionRequest, which
- * runs right before an approval prompt. Interrupt covers the user stopping a turn (Esc).
+ * runs before an approval is routed (to the user, or to an automatic reviewer: best effort).
+ * Interrupt covers the user stopping a turn (Esc). Interactive Codex (0.163+) reports its exact
+ * state on its terminal output instead (OSC 7501), which takes precedence; these hooks matter for
+ * `codex exec` and older versions.
  */
 export function stateForCodexHook(eventName: string): TerminalStatus | null {
   switch (eventName) {
@@ -71,12 +74,6 @@ export function stateForCodexHook(eventName: string): TerminalStatus | null {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
 
-function codexPermissionMessage(payload: Record<string, unknown>): string | undefined {
-  const toolInput = (payload.tool_input ?? {}) as Record<string, unknown>
-  const what = str(toolInput.description) ?? str(toolInput.command) ?? str(payload.tool_name)
-  return what ? `Approve: ${what}` : 'Codex needs your approval'
-}
-
 /** Interpret one hook payload from `agent`, or null if it isn't a usable event. */
 export function readHook(agent: HookAgent, payload: unknown): HookReading | null {
   if (typeof payload !== 'object' || payload === null) return null
@@ -89,7 +86,9 @@ export function readHook(agent: HookAgent, payload: unknown): HookReading | null
   const eventName = str(p.hook_event_name)
   if (!eventName) return null
   const state = agent === 'claude' ? stateForClaudeHook(eventName) : stateForCodexHook(eventName)
+  // Codex's approval text is deliberately generic: the command it wants to run can contain
+  // secrets, and the message ends up in a desktop notification.
   const message =
-    agent === 'claude' ? str(p.message) : eventName === 'PermissionRequest' ? codexPermissionMessage(p) : undefined
+    agent === 'claude' ? str(p.message) : eventName === 'PermissionRequest' ? 'Codex needs your approval' : undefined
   return { state, message, cwd: str(p.cwd), sessionEnded: eventName === 'SessionEnd', eventName }
 }

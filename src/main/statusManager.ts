@@ -6,6 +6,8 @@ import type { TerminalStatus } from '../shared/types'
  * Every source of status information reports a StatusSignal; this class decides which signals
  * win and owns the idle-timeout fallback. Sources, strongest first:
  *
+ *   program  The program in the terminal reports its own state on its output (OSC 7501, see
+ *            program()). While it does, it is the only source that counts.
  *   hook     An agent's own lifecycle event (Claude Code / Codex hooks). Authoritative.
  *   osc      A notification escape sequence from the terminal (OSC 9 / 777 / 99): "waiting".
  *   input    The user pressed Enter in the terminal: probably "working" now.
@@ -13,17 +15,24 @@ import type { TerminalStatus } from '../shared/types'
  *   exit     The process is gone: "idle".
  *
  * Rules (who may override whom):
- *   - hook, osc and exit signals always apply.
+ *   - program and exit signals always apply.
+ *   - While a program reports its own status, hook, osc and input signals are ignored: the
+ *     program knows exactly when it waits for the user (a hook or a notification escape can fire
+ *     when nobody is asked anything), and Enter alone doesn't prove the wait is over. That lasts
+ *     until it reports "clear", the shell is back at its prompt, the process exits, or the
+ *     timeout below fires (a program killed outright never says "clear").
+ *   - Otherwise hook and osc signals always apply.
  *   - input applies from idle or waiting: the user just acted (submitted a prompt, answered a
  *     question), which is the strongest evidence that the agent is about to work.
  *   - timeout only reverts "working". A "working" set by input reverts after the user-tunable
- *     idle debounce. One set by a hook reverts only after HOOK_WORKING_SILENCE_MS of silence:
- *     agents animate continuously while they work, so a long silence still means they stopped,
- *     and Claude Code's Stop hook doesn't fire when the user interrupts with Esc.
+ *     idle debounce. One reported by the agent itself (hook or program) reverts only after
+ *     AGENT_WORKING_SILENCE_MS of silence: agents animate continuously while they work, so a long
+ *     silence still means they stopped, and Claude Code's Stop hook doesn't fire when the user
+ *     interrupts with Esc.
  *   - timeout never touches "waiting": that needs the user, however quiet the terminal is.
  */
 
-export type StatusSource = 'hook' | 'osc' | 'input' | 'timeout' | 'exit'
+export type StatusSource = 'program' | 'hook' | 'osc' | 'input' | 'timeout' | 'exit'
 
 export interface StatusSignal {
   terminalId: string
@@ -44,12 +53,14 @@ type Listener = (terminalId: string, status: TerminalStatus, change: StatusChang
 interface PaneStatus {
   state: TerminalStatus
   source: StatusSource
+  /** A program in this terminal is reporting its own status (see program()). */
+  programReporting: boolean
   lastActivityAt: number
   timer: ReturnType<typeof setTimeout> | null
 }
 
-/** Silence required before the timeout may revert a hook-reported "working". */
-export const HOOK_WORKING_SILENCE_MS = 30_000
+/** Silence required before the timeout may revert a "working" the agent reported itself. */
+export const AGENT_WORKING_SILENCE_MS = 30_000
 
 export class StatusManager {
   private panes = new Map<string, PaneStatus>()
@@ -72,9 +83,33 @@ export class StatusManager {
     return this.panes.get(terminalId)?.source ?? null
   }
 
+  /** Whether a program in the terminal currently reports its own status. */
+  isProgramReporting(terminalId: string): boolean {
+    return this.panes.get(terminalId)?.programReporting ?? false
+  }
+
+  /**
+   * The program running in the terminal reported its own state (OSC 7501), or stopped reporting
+   * (null: it said "clear", or the shell is back at its prompt, so whatever ran has exited).
+   */
+  program(terminalId: string, state: TerminalStatus | null, message?: string): void {
+    const pane = this.pane(terminalId)
+    if (state === null) {
+      if (!pane.programReporting) return
+      pane.programReporting = false
+      this.signal({ terminalId, state: 'idle', source: 'program' })
+      return
+    }
+    pane.programReporting = true
+    this.signal({ terminalId, state, source: 'program', message })
+  }
+
   signal(signal: StatusSignal): void {
     const pane = this.pane(signal.terminalId)
     if (!this.accepts(pane, signal)) return
+    // The process is gone, or a reported "working" went silent: whatever reported is not
+    // running any more, so the other sources count again.
+    if (signal.source === 'exit' || signal.source === 'timeout') pane.programReporting = false
     const previous = pane.state
     pane.source = signal.source
     if (signal.state !== 'working') {
@@ -119,7 +154,11 @@ export class StatusManager {
   }
 
   private accepts(pane: PaneStatus, signal: StatusSignal): boolean {
+    if (pane.programReporting && (signal.source === 'hook' || signal.source === 'osc' || signal.source === 'input')) {
+      return false
+    }
     switch (signal.source) {
+      case 'program':
       case 'hook':
       case 'osc':
       case 'exit':
@@ -134,7 +173,7 @@ export class StatusManager {
   private pane(terminalId: string): PaneStatus {
     let pane = this.panes.get(terminalId)
     if (!pane) {
-      pane = { state: 'idle', source: 'exit', lastActivityAt: Date.now(), timer: null }
+      pane = { state: 'idle', source: 'exit', programReporting: false, lastActivityAt: Date.now(), timer: null }
       this.panes.set(terminalId, pane)
     }
     return pane
@@ -145,18 +184,21 @@ export class StatusManager {
     pane.timer = null
   }
 
+  private silenceNeeded(pane: PaneStatus): number {
+    return pane.source === 'hook' || pane.source === 'program' ? AGENT_WORKING_SILENCE_MS : this.getIdleDebounceMs()
+  }
+
   /** (Re)arm the silence check for a "working" pane, sized to who said it's working. */
   private armTimer(terminalId: string, pane: PaneStatus): void {
     this.clearTimer(pane)
-    const required = pane.source === 'hook' ? HOOK_WORKING_SILENCE_MS : this.getIdleDebounceMs()
+    const required = this.silenceNeeded(pane)
     const elapsed = Date.now() - pane.lastActivityAt
     pane.timer = setTimeout(
       () => {
         pane.timer = null
         if (pane.state !== 'working') return
         const silence = Date.now() - pane.lastActivityAt
-        const needed = pane.source === 'hook' ? HOOK_WORKING_SILENCE_MS : this.getIdleDebounceMs()
-        if (silence + 5 < needed) {
+        if (silence + 5 < this.silenceNeeded(pane)) {
           this.armTimer(terminalId, pane) // output arrived meanwhile, or the source changed
           return
         }

@@ -16,14 +16,22 @@
  *     OSC 7 ; file://<host>/<path> ST       xterm / VTE / macOS Terminal
  *     OSC 9 ; 9 ; "<path>" ST               ConEmu / Windows Terminal (Pitwall's PowerShell)
  *     OSC 633 ; P ; Cwd=<path> ST           VS Code shell integration
+ *   Program status (the running program reporting its own state; Codex 0.163+ emits it):
+ *     OSC 7501 ; state=<s>[:app=<name>][:kind=<k>]... ST
+ *       s = idle | working | blocked | done | error, or clear (the program stopped reporting);
+ *       k (blocked only) = permission | question | auth. Other keys (id, progress, msg...) are
+ *       ignored, as is the feature query "OSC 7501 ; ?" (Pitwall doesn't need to answer it).
  *
  * OSC 9 with a numeric subcommand (9;4 progress bar, 9;9 cwd, ...) is ConEmu's extension, not a
  * notification. An ESC inside a sequence that isn't the start of ST cancels it, as in xterm.
  */
 
+export type ProgramState = 'idle' | 'working' | 'blocked' | 'done' | 'error' | 'clear'
+
 export type OscEvent =
   | { kind: 'attention'; source: 'osc9' | 'osc777' | 'osc99'; message: string }
   | { kind: 'cwd'; path: string }
+  | { kind: 'program'; state: ProgramState; app: string | null; blockedKind: string | null }
 
 /** Longest unterminated sequence carried between chunks; anything longer is dropped. */
 export const MAX_OSC_LENGTH = 8192
@@ -99,6 +107,8 @@ function interpret(body: string): OscEvent | null {
       return cwdEvent(fromFileUrl(rest))
     case '633':
       return rest.startsWith('P;Cwd=') ? cwdEvent(decode633(rest.slice('P;Cwd='.length))) : null
+    case '7501':
+      return programStatus(rest)
     default:
       return null
   }
@@ -124,6 +134,28 @@ function kittyNotification(rest: string): OscEvent | null {
   if (fields.get('d') === '0') return null
   // e=1: base64 payload. The message is only informational here; don't decode untrusted data.
   return { kind: 'attention', source: 'osc99', message: fields.get('e') === '1' ? '' : payload }
+}
+
+const PROGRAM_STATES: readonly ProgramState[] = ['idle', 'working', 'blocked', 'done', 'error', 'clear']
+const PROGRAM_APP = /^[A-Za-z0-9_.+-]{1,32}$/
+
+/** OSC 7501 body: colon-separated key=value pairs; state is required, the last duplicate wins. */
+function programStatus(body: string): OscEvent | null {
+  if (body.startsWith('?')) return null // feature query
+  let state: string | null = null
+  let app: string | null = null
+  let kind: string | null = null
+  for (const pair of body.split(':')) {
+    const eq = pair.indexOf('=')
+    if (eq < 0) continue
+    const key = pair.slice(0, eq).trim()
+    const value = pair.slice(eq + 1).trim()
+    if (key === 'state') state = value
+    else if (key === 'app') app = PROGRAM_APP.test(value) ? value : null
+    else if (key === 'kind') kind = value || null
+  }
+  if (!state || !(PROGRAM_STATES as readonly string[]).includes(state)) return null
+  return { kind: 'program', state: state as ProgramState, app, blockedKind: state === 'blocked' ? kind : null }
 }
 
 function cwdEvent(path: string | null): OscEvent | null {

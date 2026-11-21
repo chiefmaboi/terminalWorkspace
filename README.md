@@ -12,8 +12,8 @@ Pitwall is a fork of [ittop](https://github.com/pottz91/ittop) by pottz91 (MIT).
 
 - Grid wall of live terminals per workspace, scaled to fit (Auto, or a fixed 0.5 / 0.4 / 0.33 / 0.25).
 - Zoom a tile over the dimmed wall; terminals never resize when you zoom, so agent UIs don't reflow.
-- Status per terminal: working, idle, or waiting (glowing outline plus a desktop notification),
-  from agent hooks when installed and from terminal output otherwise.
+- Status per terminal: working, idle, or waiting (glowing outline plus a desktop notification).
+  Codex reports it on its own output, Claude Code through hooks, anything else from terminal activity.
 - Drag tiles to reorder, right-click to pin a tile at 2x2.
 - File drawer for the selected terminal, rooted at its current folder (follows worktrees).
 - Keyboard driven: arrow keys and Enter on the wall, every key goes to the terminal once inside.
@@ -34,17 +34,16 @@ folder and a start command (default `claude`).
 
 ## Agent hooks
 
-Optional, for exact status straight from the agent. In **Settings > Agent hooks**, click
-**Install** for Claude Code and/or Codex. Pitwall shows the exact change to the agent's user-level
-config (`~/.claude/settings.json`, `~/.codex/hooks.json`) before writing it, backs the file up, and
-keeps your other settings and hooks. **Remove** takes it out again.
+Exact status straight from the agent. Claude Code needs them; Codex 0.163 or newer already reports
+its status on its own output, so its hooks only add `codex exec` and older versions.
+
+In **Settings > Agent hooks**, click **Install** for Claude Code and/or Codex. Pitwall shows the
+exact change to the agent's user-level config (`~/.claude/settings.json`, `~/.codex/hooks.json`)
+before writing it, backs the file up, and keeps your other settings and hooks. **Remove** takes it
+out again.
 
 The hook only acts inside a Pitwall terminal; sessions started anywhere else are unaffected.
 Codex asks you to trust new hooks once: after installing, run `/hooks` in Codex and trust Pitwall's.
-
-Inside Pitwall terminals, interactive Codex (`codex`, `codex resume`, `codex fork`) runs with
-`--no-daemon`, added automatically. Otherwise Codex hands the session to its shared background
-server, whose hooks can't tell which terminal they belong to. Codex outside Pitwall is unchanged.
 
 ## Keys
 

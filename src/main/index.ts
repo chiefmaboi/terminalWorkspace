@@ -103,6 +103,12 @@ const hookServer = new HookServer(paneTokens, (event) => {
     hookEventName: event.eventName,
     receivedAt: Date.now()
   })
+  // A Codex daemon started from inside a terminal inherits that terminal's variables, so the
+  // sessions it hosts later (in other tiles, or outside Pitwall) report with this terminal's
+  // token. A terminal whose Codex reports its own status (OSC 7501) gets nothing from Codex hooks
+  // that its output doesn't already say, so they're ignored there; restarting the terminal
+  // issues a new token, which the daemon doesn't have.
+  if (event.agent === 'codex' && ptyManager.hasProgramReported(event.terminalId, 'codex')) return
   if (event.cwd || event.sessionEnded) ptyManager.setAgentCwd(event.terminalId, event.sessionEnded ? null : event.cwd!)
   if (event.state) {
     statusManager.signal({ terminalId: event.terminalId, state: event.state, source: 'hook', message: event.message })

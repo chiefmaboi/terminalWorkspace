@@ -23,7 +23,10 @@ import { lineDiff } from './lineDiff'
  */
 
 export const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'SessionEnd'] as const
-export const CODEX_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'Interrupt', 'SessionEnd'] as const
+// No SessionEnd for Codex: Codex always runs SessionEnd hooks synchronously (delaying exit) and
+// warns at every start when one asks for async, and Stop / the shell's prompt already say the
+// session is over.
+export const CODEX_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'Interrupt'] as const
 
 export const RELAY_SCRIPT_NAME = 'pitwall-hook.ps1'
 
@@ -45,8 +48,9 @@ export function posixRelayCommand(agent: InstallableAgent): string {
 }
 
 /**
- * Windows relay for Codex: Codex doesn't document which shell runs `commandWindows`, so it calls
- * a PowerShell script that reads the environment itself and works whichever shell launches it.
+ * Windows relay for Codex. Codex runs `commandWindows` through PowerShell (pwsh if installed,
+ * `-NoProfile -Command`), falling back to cmd.exe /C; this command line works in all of them and
+ * calls a PowerShell script that reads the environment itself.
  */
 export function windowsRelayCommand(scriptPath: string, agent: InstallableAgent): string {
   return `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${scriptPath}" ${agent}`
@@ -96,7 +100,7 @@ function handlersOf(group: unknown): unknown[] {
 
 function desiredHandler(agent: InstallableAgent, scriptPath: string): Json {
   if (agent === 'claude') return { type: 'command', command: posixRelayCommand('claude'), timeout: 5 }
-  // Codex: async so the relay never holds up a turn; 3s is the maximum Codex allows for SessionEnd.
+  // Codex: async so the relay never holds up a turn; 3s is the maximum Codex allows for Interrupt.
   return {
     type: 'command',
     command: posixRelayCommand('codex'),

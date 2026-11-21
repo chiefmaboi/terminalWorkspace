@@ -61,17 +61,20 @@ describe('hook adapters', () => {
     expect(readHook('claude', { hook_event_name: 'SessionEnd' })).toMatchObject({ state: 'idle', sessionEnded: true })
   })
 
-  it('reads Codex payloads, building an approval message from the tool request', () => {
+  it('reads Codex payloads, keeping the approval message generic (commands can contain secrets)', () => {
     expect(
       readHook('codex', {
         hook_event_name: 'PermissionRequest',
         tool_name: 'Bash',
-        tool_input: { command: 'rm -rf build' },
+        tool_input: { command: 'curl -H "Authorization: Bearer s3cret" https://example.test' },
         cwd: 'C:\\repo'
       })
-    ).toMatchObject({ state: 'waiting', message: 'Approve: rm -rf build', cwd: 'C:\\repo' })
-    expect(readHook('codex', { hook_event_name: 'PermissionRequest' })).toMatchObject({
-      message: 'Codex needs your approval'
+    ).toEqual({
+      state: 'waiting',
+      message: 'Codex needs your approval',
+      cwd: 'C:\\repo',
+      sessionEnded: false,
+      eventName: 'PermissionRequest'
     })
   })
 

@@ -6,7 +6,7 @@ import { join } from 'path'
 import { HookServer } from '../hookServer'
 import type { HookEvent } from '../hookServer'
 import { PaneTokens } from '../paneTokens'
-import { RELAY_SCRIPT, posixRelayCommand } from '../hookInstaller'
+import { RELAY_SCRIPT, posixRelayCommand, windowsRelayCommand } from '../hookInstaller'
 
 /**
  * The installed relays, run by real shells against a live HookServer: exactly what an agent
@@ -26,11 +26,12 @@ function run(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv,
-  stdin: string
+  stdin: string,
+  verbatim = false
 ): Promise<{ code: number | null; stdout: string; ms: number }> {
   const started = Date.now()
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { env, windowsHide: true })
+    const child = spawn(command, args, { env, windowsHide: true, windowsVerbatimArguments: verbatim })
     let stdout = ''
     child.stdout.on('data', (d) => (stdout += String(d)))
     child.on('error', reject)
@@ -130,9 +131,29 @@ describe.skipIf(process.platform !== 'win32')('PowerShell relay script (Codex on
       terminalId: 'T2',
       agent: 'codex',
       state: 'waiting',
-      message: 'Approve: rm -rf build',
+      message: 'Codex needs your approval',
       cwd: 'C:\\Users\\Zo\u00eb\\repo'
     })
+  }, 30_000)
+
+  // The installed commandWindows line, launched the ways Codex launches it (codex-rs hooks
+  // command_runner.rs): through PowerShell with -NoProfile -Command (a normally quoted argument),
+  // or, with no shell configured, through %COMSPEC% /C with the line passed verbatim in quotes.
+  it.each([
+    ['powershell -Command', 'powershell.exe', (cmd: string) => ['-NoProfile', '-Command', cmd], false],
+    ['cmd /C', process.env.ComSpec ?? 'cmd.exe', (cmd: string) => ['/C', `"${cmd}"`], true]
+  ])('delivers through %s', async (_label, shell, args, verbatim) => {
+    const token = tokens.issue('T3')
+    const result = await run(
+      shell,
+      args(windowsRelayCommand(script, 'codex')),
+      { ...baseEnv(), PITWALL_TOKEN: token, PITWALL_HOOK_URL: server.url()! },
+      '{"hook_event_name":"Stop","cwd":"C:\\\\repo"}',
+      verbatim
+    )
+    expect(result.code).toBe(0)
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ terminalId: 'T3', agent: 'codex', state: 'idle', eventName: 'Stop' })
   }, 30_000)
 
   it('does nothing outside a Pitwall terminal and never fails', async () => {
