@@ -56,13 +56,13 @@ function ReviewModal({
     const what = action === 'install' ? 'installed' : 'removed'
     const backupName = result.backupPath?.split(/[\\/]/).pop()
     onDone(
-      `${agent === 'claude' ? 'Claude Code' : 'Codex'} hooks ${what}.` +
+      `Claude Code hooks ${what}.` +
         (backupName ? ` Previous file backed up next to it as ${backupName}.` : '')
     )
     onClose()
   }
 
-  const name = agent === 'claude' ? 'Claude Code' : 'Codex'
+  const name = 'Claude Code'
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal hook-review" onClick={(e) => e.stopPropagation()}>
@@ -103,12 +103,6 @@ function ReviewModal({
               <p className="modal-hint">
                 A backup of the current file is saved next to it first.
                 {plan.reformatted && ' The file will be rewritten as standard 2-space JSON (content otherwise unchanged).'}
-              </p>
-            )}
-            {agent === 'codex' && action === 'install' && plan.changed && (
-              <p className="modal-hint">
-                Codex asks you to trust new hooks before running them: the next time Codex starts it will point you to{' '}
-                <code>/hooks</code> to review and trust Pitwall&apos;s.
               </p>
             )}
           </>

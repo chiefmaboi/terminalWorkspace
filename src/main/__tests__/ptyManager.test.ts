@@ -127,10 +127,8 @@ describe('PtyManager', () => {
     const changes: Array<[string, string, string | undefined]> = []
     sm.onChange((_id, status, change) => changes.push([status, change.source, change.message]))
     pm.start('t', '/p', 'codex')
-    expect(pm.hasProgramReported('t', 'codex')).toBe(false)
     procs[0].emitData('\x1b]7501;state=working:app=codex\x1b\\')
     expect(sm.get('t')).toBe('working')
-    expect(pm.hasProgramReported('t', 'codex')).toBe(true)
     procs[0].emitData('\x1b]7501;state=blocked:app=codex:kind=permission\x1b\\')
     expect(changes.at(-1)).toEqual(['waiting', 'program', 'Waiting for your approval'])
     procs[0].emitData('\x1b]9;Codex wants to run a command\x07') // its own OSC 9 changes nothing
@@ -143,10 +141,6 @@ describe('PtyManager', () => {
     procs[0].emitData('\x1b]9;9;"C:\\\\repo"\x1b\\PS C:\\repo> ')
     expect(sm.get('t')).toBe('idle')
     expect(sm.isProgramReporting('t')).toBe(false)
-    expect(pm.hasProgramReported('t', 'codex')).toBe(true) // remembered for this shell's lifetime
-
-    pm.start('t2', '/p', '')
-    expect(pm.hasProgramReported('t2', 'codex')).toBe(false)
   })
 
   it("injects each terminal's own PITWALL_* variables after filtering inherited ones", async () => {

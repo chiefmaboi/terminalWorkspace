@@ -95,8 +95,6 @@ interface Session {
   reportedCwd: string | null
   /** The agent's cwd from its hook events (e.g. a worktree it moved into), while it runs. */
   agentCwd: string | null
-  /** Programs (OSC 7501 app=) that have reported their own status in this shell. */
-  programApps: Set<string>
   /** Streaming OSC parser: attention notifications and cwd reports, split-chunk safe. */
   osc: OscStream
 }
@@ -155,7 +153,6 @@ export class PtyManager {
       startCwd: cwd,
       reportedCwd: null,
       agentCwd: null,
-      programApps: new Set(),
       osc: new OscStream()
     }
     this.sessions.set(terminalId, session)
@@ -172,7 +169,6 @@ export class PtyManager {
         if (event.kind === 'attention') {
           this.statusManager.signal({ terminalId, state: 'waiting', source: 'osc', message: event.message })
         } else if (event.kind === 'program') {
-          if (event.app) session.programApps.add(event.app)
           const message = event.blockedKind ? BLOCKED_MESSAGES[event.blockedKind] : undefined
           this.statusManager.program(terminalId, programStatus(event), message)
         } else {
@@ -222,11 +218,6 @@ export class PtyManager {
   }
 
   /** The agent running in this terminal reported its cwd through a hook (null: it ended). */
-  /** Whether `app` has reported its own status (OSC 7501) in this terminal's current shell. */
-  hasProgramReported(terminalId: string, app: string): boolean {
-    return this.sessions.get(terminalId)?.programApps.has(app) ?? false
-  }
-
   setAgentCwd(terminalId: string, cwd: string | null): void {
     const session = this.sessions.get(terminalId)
     if (session) session.agentCwd = cwd

@@ -13,7 +13,7 @@ import { StatusManager } from './statusManager'
 import { HookServer } from './hookServer'
 import { GitBranchPoller } from './git'
 import { PaneTokens } from './paneTokens'
-import { HookInstaller, RELAY_SCRIPT_NAME } from './hookInstaller'
+import { HookInstaller } from './hookInstaller'
 import { IPC } from '../shared/types'
 import type {
   CreateTerminalInput,
@@ -108,21 +108,13 @@ const hookServer = new HookServer(paneTokens, (event) => {
     hookEventName: event.eventName,
     receivedAt: Date.now()
   })
-  // A Codex daemon started from inside a terminal inherits that terminal's variables, so the
-  // sessions it hosts later (in other tiles, or outside Pitwall) report with this terminal's
-  // token. A terminal whose Codex reports its own status (OSC 7501) gets nothing from Codex hooks
-  // that its output doesn't already say, so they're ignored there; restarting the terminal
-  // issues a new token, which the daemon doesn't have.
-  if (event.agent === 'codex' && ptyManager.hasProgramReported(event.terminalId, 'codex')) return
   if (event.cwd || event.sessionEnded) ptyManager.setAgentCwd(event.terminalId, event.sessionEnded ? null : event.cwd!)
   if (event.state) {
     statusManager.signal({ terminalId: event.terminalId, state: event.state, source: 'hook', message: event.message })
   }
 })
 
-const hookInstaller = new HookInstaller({
-  relayScriptPath: join(app.getPath('userData'), 'hooks', RELAY_SCRIPT_NAME)
-})
+const hookInstaller = new HookInstaller()
 
 const ptyManager = new PtyManager(
   statusManager,
@@ -665,7 +657,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.hookServerInfo, () => ({ url: hookServer.url() }))
 
   // Agent hook installation: status, a reviewable plan (diff), and apply-after-review.
-  const isAgent = (v: unknown): v is InstallableAgent => v === 'claude' || v === 'codex'
+  const isAgent = (v: unknown): v is InstallableAgent => v === 'claude'
   const isAction = (v: unknown): v is HookAction => v === 'install' || v === 'uninstall'
   ipcMain.handle(IPC.hooksStatus, () => hookInstaller.status())
   ipcMain.handle(IPC.hooksPlan, async (_event, agent: unknown, action: unknown): Promise<HookPlan | null> =>

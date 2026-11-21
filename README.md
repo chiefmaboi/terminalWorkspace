@@ -34,16 +34,13 @@ folder and a start command (default `claude`).
 
 ## Agent hooks
 
-Exact status straight from the agent. Claude Code needs them; Codex 0.163 or newer already reports
-its status on its own output, so its hooks only add `codex exec` and older versions.
-
-In **Settings > Agent hooks**, click **Install** for Claude Code and/or Codex. Pitwall shows the
-exact change to the agent's user-level config (`~/.claude/settings.json`, `~/.codex/hooks.json`)
-before writing it, backs the file up, and keeps your other settings and hooks. **Remove** takes it
-out again.
+Exact status straight from Claude Code. In **Settings > Agent hooks**, click **Install**. Pitwall
+shows the exact change to Claude Code's user-level settings (`~/.claude/settings.json`) before
+writing it, backs the file up, and keeps your other settings and hooks. **Remove** takes it out
+again.
 
 The hook only acts inside a Pitwall terminal; sessions started anywhere else are unaffected.
-Codex asks you to trust new hooks once: after installing, run `/hooks` in Codex and trust Pitwall's.
+Codex needs no hooks: version 0.163 or newer reports its status on its own output.
 
 ## Keys
 

@@ -821,10 +821,8 @@ test.describe('agent hooks', () => {
   let ctx: LaunchedApp
   let base: string
   let claudeDir: string
-  let codexDir: string
   const isWin = process.platform === 'win32'
   const userClaudeHook = { hooks: [{ type: 'command', command: 'echo users-own-claude-hook' }] }
-  const userCodexGroup = { hooks: [{ type: 'command', command: 'echo users-own-codex-hook' }] }
 
   const tileOf = (window: Page, title: string) =>
     window.locator('.tile').filter({ has: window.locator('.tile-title', { hasText: title }) })
@@ -851,15 +849,12 @@ test.describe('agent hooks', () => {
   test.beforeAll(async () => {
     base = mkdtempSync(join(tmpdir(), 'pitwall-hooks-e2e-'))
     claudeDir = join(base, 'claude')
-    codexDir = join(base, 'codex')
     mkdirSync(claudeDir)
-    mkdirSync(codexDir)
     writeFileSync(
       join(claudeDir, 'settings.json'),
       JSON.stringify({ model: 'opus', hooks: { Stop: [userClaudeHook] } }, null, 2) + '\n'
     )
-    writeFileSync(join(codexDir, 'hooks.json'), JSON.stringify({ hooks: { Stop: [userCodexGroup] } }, null, 2) + '\n')
-    ctx = await launchApp({ CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexDir })
+    ctx = await launchApp({ CLAUDE_CONFIG_DIR: claudeDir })
     await createWorkspace(ctx.window, 'Hooks')
     await addTerminal(ctx.window, 'Hooks', 'Left', 'echo left-ready')
     await addTerminal(ctx.window, 'Hooks', 'Right', 'echo right-ready')
@@ -924,16 +919,17 @@ test.describe('agent hooks', () => {
 
   const openHooksSettings = async (window: Page): Promise<void> => {
     await window.locator('button[title="Settings"]').click()
-    await expect(window.locator('.hook-item')).toHaveCount(2)
+    await expect(window.locator('.hook-item')).toHaveCount(1)
   }
   const closeSettings = (window: Page): Promise<void> =>
     window.locator('.settings-modal .modal-actions button.primary', { hasText: 'Done' }).click()
 
-  for (const agent of ['claude', 'codex'] as const) {
-    test(`installing ${agent} hooks: review the diff, apply, idempotent, then remove`, async () => {
+  {
+    const agent = 'claude'
+    test('installing claude hooks: review the diff, apply, idempotent, then remove', async () => {
       const { window } = ctx
-      const configPath = agent === 'claude' ? join(claudeDir, 'settings.json') : join(codexDir, 'hooks.json')
-      const userGroup = agent === 'claude' ? userClaudeHook : userCodexGroup
+      const configPath = join(claudeDir, 'settings.json')
+      const userGroup = userClaudeHook
       const row = window.locator(`.hook-item[data-agent="${agent}"]`)
       await openHooksSettings(window)
       await expect(row).toHaveAttribute('data-state', 'missing')
@@ -952,11 +948,8 @@ test.describe('agent hooks', () => {
       const installed = JSON.parse(readFileSync(configPath, 'utf-8'))
       expect(installed.hooks.Stop[0]).toEqual(userGroup) // the user's hook keeps its position
       expect(JSON.stringify(installed.hooks.Stop[1])).toContain('PITWALL_TOKEN')
-      if (agent === 'claude') expect(installed.model).toBe('opus')
-      if (agent === 'codex') {
-        expect(readFileSync(join(ctx.userDataDir, 'hooks', 'pitwall-hook.ps1'), 'utf-8')).toContain('PITWALL_TOKEN')
-      }
-      expect(readdirSync(agent === 'claude' ? claudeDir : codexDir).some((f) => f.includes('pitwall-backup'))).toBe(true)
+      expect(installed.model).toBe('opus')
+      expect(readdirSync(claudeDir).some((f) => f.includes('pitwall-backup'))).toBe(true)
 
       // Remove: back to exactly the user's own config.
       await row.locator('button', { hasText: 'Remove' }).click()
@@ -974,22 +967,6 @@ test.describe('agent hooks', () => {
     })
   }
 
-  test("the installed Codex relay, run inside a Pitwall terminal, reports to that terminal", async () => {
-    test.skip(!isWin, 'the PowerShell relay is the Windows path; macOS/Linux use the curl relay')
-    const { window } = ctx
-    const script = join(ctx.userDataDir, 'hooks', 'pitwall-hook.ps1')
-    const payload = {
-      hook_event_name: 'PermissionRequest',
-      tool_name: 'Bash',
-      tool_input: { command: 'npm publish' }
-    }
-    await run(
-      window,
-      'Right',
-      `${quote(JSON.stringify(payload))} | powershell -NoProfile -ExecutionPolicy Bypass -File "${script}" codex`
-    )
-    await expect(tileOf(window, 'Right')).toHaveAttribute('data-status', 'waiting', { timeout: 20_000 })
-  })
 })
 
 test.describe('relaunch', () => {

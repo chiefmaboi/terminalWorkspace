@@ -2,49 +2,35 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import {
-  CLAUDE_EVENTS,
-  CODEX_EVENTS,
-  HookInstaller,
-  RELAY_SCRIPT,
-  posixRelayCommand,
-  windowsRelayCommand
-} from '../hookInstaller'
+import { CLAUDE_EVENTS, HookInstaller, posixRelayCommand } from '../hookInstaller'
 
 let base: string
 let claudeDir: string
-let codexDir: string
-let script: string
 let installer: HookInstaller
 
 beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), 'pitwall-installer-'))
   claudeDir = join(base, 'claude')
-  codexDir = join(base, 'codex')
-  script = join(base, 'userData', 'hooks', 'pitwall-hook.ps1')
   installer = new HookInstaller({
-    relayScriptPath: script,
-    env: { CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexDir },
+    env: { CLAUDE_CONFIG_DIR: claudeDir },
     home: join(base, 'home')
   })
 })
 afterEach(() => rmSync(base, { recursive: true, force: true }))
 
 const readJson = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, 'utf-8'))
-const install = async (agent: 'claude' | 'codex'): Promise<{ ok: boolean; backupPath?: string; error?: string }> => {
+const install = async (agent: 'claude'): Promise<{ ok: boolean; backupPath?: string; error?: string }> => {
   const plan = await installer.plan(agent, 'install')
   return installer.apply(agent, 'install', plan.beforeHash)
 }
-const statusOf = async (agent: 'claude' | 'codex'): Promise<string> =>
+const statusOf = async (agent: 'claude'): Promise<string> =>
   (await installer.status()).find((s) => s.agent === agent)!.state
 
 describe('HookInstaller paths', () => {
-  it('honors CLAUDE_CONFIG_DIR / CODEX_HOME, defaulting to ~/.claude and ~/.codex', () => {
-    expect(installer.configPath('claude')).toBe(join(claudeDir, 'settings.json'))
-    expect(installer.configPath('codex')).toBe(join(codexDir, 'hooks.json'))
-    const defaults = new HookInstaller({ relayScriptPath: script, env: {}, home: '/home/me' })
-    expect(defaults.configPath('claude')).toBe(join('/home/me', '.claude', 'settings.json'))
-    expect(defaults.configPath('codex')).toBe(join('/home/me', '.codex', 'hooks.json'))
+  it('honors CLAUDE_CONFIG_DIR, defaulting to ~/.claude', () => {
+    expect(installer.configPath()).toBe(join(claudeDir, 'settings.json'))
+    const defaults = new HookInstaller({ env: {}, home: '/home/me' })
+    expect(defaults.configPath()).toBe(join('/home/me', '.claude', 'settings.json'))
   })
 })
 
@@ -161,62 +147,10 @@ describe('HookInstaller: Claude Code', () => {
   })
 })
 
-describe('HookInstaller: Codex', () => {
-  it('appends after the user\'s hooks (Codex trusts hooks by position) and writes the relay script', async () => {
-    mkdirSync(codexDir, { recursive: true })
-    const userGroup = { hooks: [{ type: 'command', command: 'python scribe.py', commandWindows: 'python scribe.py' }] }
-    writeFileSync(
-      join(codexDir, 'hooks.json'),
-      JSON.stringify({ description: 'mine', hooks: { Stop: [userGroup], UserPromptSubmit: [userGroup] } }, null, 2)
-    )
-    expect((await install('codex')).ok).toBe(true)
-    const after = readJson(join(codexDir, 'hooks.json'))
-    expect(after.description).toBe('mine')
-    const hooks = after.hooks as Record<string, unknown[]>
-    expect(Object.keys(hooks).sort()).toEqual([...CODEX_EVENTS].sort())
-    expect(hooks.Stop[0]).toEqual(userGroup) // still group 0: its trust key is unchanged
-    expect(hooks.Stop[1]).toEqual({
-      hooks: [
-        {
-          type: 'command',
-          command: posixRelayCommand('codex'),
-          commandWindows: windowsRelayCommand(script, 'codex'),
-          timeout: 3,
-          async: true
-        }
-      ]
-    })
-    expect(readFileSync(script, 'utf-8')).toBe(RELAY_SCRIPT)
-    expect(await statusOf('codex')).toBe('installed')
-  })
-
-  it('an install from before SessionEnd was dropped shows as outdated; updating removes only that entry', async () => {
-    mkdirSync(codexDir, { recursive: true })
-    expect(CODEX_EVENTS).not.toContain('SessionEnd')
-    const relay = {
-      type: 'command',
-      command: posixRelayCommand('codex'),
-      commandWindows: windowsRelayCommand(script, 'codex'),
-      timeout: 3,
-      async: true
-    }
-    const userGroup = { hooks: [{ type: 'command', command: 'python scribe.py' }] }
-    const old: Record<string, unknown[]> = { SessionEnd: [userGroup, { hooks: [relay] }] }
-    for (const event of CODEX_EVENTS) old[event] = [{ hooks: [relay] }]
-    writeFileSync(join(codexDir, 'hooks.json'), JSON.stringify({ hooks: old }, null, 2))
-    expect(await statusOf('codex')).toBe('outdated')
-    expect((await install('codex')).ok).toBe(true)
-    const hooks = readJson(join(codexDir, 'hooks.json')).hooks as Record<string, unknown[]>
-    expect(hooks.SessionEnd).toEqual([userGroup]) // the user's own SessionEnd hook stays, at index 0
-    for (const event of CODEX_EVENTS) expect(hooks[event]).toEqual([{ hooks: [relay] }]) // untouched: trust kept
-    expect(await statusOf('codex')).toBe('installed')
-  })
-
+describe('HookInstaller: relay command', () => {
   it('the relay command is guarded, silent and always exits 0', () => {
-    const cmd = posixRelayCommand('codex')
+    const cmd = posixRelayCommand('claude')
     expect(cmd.startsWith('[ -n "$PITWALL_TOKEN" ] && [ -n "$PITWALL_HOOK_URL" ] &&')).toBe(true)
     expect(cmd).toContain('>/dev/null 2>&1; exit 0')
-    expect(RELAY_SCRIPT).toContain('if (-not $env:PITWALL_TOKEN -or -not $env:PITWALL_HOOK_URL) { exit 0 }')
-    expect(/^[\x00-\x7f]*$/.test(RELAY_SCRIPT)).toBe(true) // ASCII: PowerShell 5.1 reads it without a BOM
   })
 })

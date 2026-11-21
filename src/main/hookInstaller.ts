@@ -6,35 +6,26 @@ import type { AgentHookStatus, HookAction, HookApplyResult, HookPlan, Installabl
 import { lineDiff } from './lineDiff'
 
 /**
- * Installs Pitwall's hook relay into the agents' USER-level hook config, so it applies to every
- * session of that agent in every folder:
- *   Claude Code: $CLAUDE_CONFIG_DIR/settings.json (default ~/.claude/settings.json)
- *   Codex:       $CODEX_HOME/hooks.json            (default ~/.codex/hooks.json)
+ * Installs Pitwall's hook relay into Claude Code's USER-level settings
+ * ($CLAUDE_CONFIG_DIR/settings.json, default ~/.claude/settings.json), so it applies to every
+ * session in every folder. (Codex needs no hooks: it reports its status on its own terminal
+ * output, see oscStream.ts.)
  *
  * The relay is guarded: it does nothing unless PITWALL_TOKEN and PITWALL_HOOK_URL are set, which
  * only happens inside a Pitwall terminal, so sessions outside Pitwall are unaffected.
  *
  * Editing rules: other keys and other hooks are preserved; Pitwall's entries are recognized by
- * the relay they call and updated in place, new ones are appended at the end of an event's list
- * (Codex identifies trusted hooks by position, so existing hooks keep their trust); a file that
- * doesn't parse as JSON is never touched; every write is preceded by a backup; apply() refuses if
- * the file changed after the user reviewed the plan. Codex hook trust is NOT written here: Codex
- * asks the user to trust new hooks itself (/hooks).
+ * the relay they call and updated in place, new ones are appended at the end of an event's list;
+ * a file that doesn't parse as JSON is never touched; every write is preceded by a backup;
+ * apply() refuses if the file changed after the user reviewed the plan.
  */
 
 export const CLAUDE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'SessionEnd'] as const
-// No SessionEnd for Codex: Codex always runs SessionEnd hooks synchronously (delaying exit) and
-// warns at every start when one asks for async, and Stop / the shell's prompt already say the
-// session is over.
-export const CODEX_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'Interrupt'] as const
-
-export const RELAY_SCRIPT_NAME = 'pitwall-hook.ps1'
-
-const LABELS: Record<InstallableAgent, string> = { claude: 'Claude Code', codex: 'Codex' }
+const LABELS: Record<InstallableAgent, string> = { claude: 'Claude Code' }
 
 /**
- * POSIX-shell relay: curl the hook JSON (stdin) to this terminal's Pitwall. Used by Claude Code
- * everywhere (it runs hooks through bash, Git Bash on Windows) and by Codex on macOS/Linux.
+ * POSIX-shell relay: curl the hook JSON (stdin) to this terminal's Pitwall. Claude Code runs hooks
+ * through bash everywhere (Git Bash on Windows).
  * Output is discarded (some hooks' stdout is fed to the model) and the exit code is always 0
  * (a failing relay must never disturb the agent).
  */
@@ -47,49 +38,12 @@ export function posixRelayCommand(agent: InstallableAgent): string {
   )
 }
 
-/**
- * Windows relay for Codex. Codex runs `commandWindows` through PowerShell (pwsh if installed,
- * `-NoProfile -Command`), falling back to cmd.exe /C; this command line works in all of them and
- * calls a PowerShell script that reads the environment itself.
- */
-export function windowsRelayCommand(scriptPath: string, agent: InstallableAgent): string {
-  return `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${scriptPath}" ${agent}`
-}
-
-/** The PowerShell relay script (ASCII only, so PowerShell 5.1 reads it without a BOM). */
-export const RELAY_SCRIPT = [
-  '# Pitwall hook relay. Forwards an agent hook event (JSON on stdin) to the Pitwall terminal the',
-  '# agent runs in. Outside a Pitwall terminal (no PITWALL_TOKEN) it does nothing. Never fails.',
-  'param([string]$Agent = "codex")',
-  'if (-not $env:PITWALL_TOKEN -or -not $env:PITWALL_HOOK_URL) { exit 0 }',
-  'try {',
-  '  [Console]::InputEncoding = [System.Text.Encoding]::UTF8',
-  '  $body = [Console]::In.ReadToEnd()',
-  '  $request = [System.Net.HttpWebRequest]::Create("$($env:PITWALL_HOOK_URL)/$Agent")',
-  '  $request.Method = "POST"',
-  '  $request.Timeout = 2000',
-  '  $request.Proxy = $null',
-  '  $request.ContentType = "application/json"',
-  '  $request.Headers.Add("Authorization", "Bearer $($env:PITWALL_TOKEN)")',
-  '  $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)',
-  '  $request.ContentLength = $bytes.Length',
-  '  $stream = $request.GetRequestStream()',
-  '  $stream.Write($bytes, 0, $bytes.Length)',
-  '  $stream.Close()',
-  '  $request.GetResponse().Close()',
-  '} catch {}',
-  'exit 0',
-  ''
-].join('\r\n')
-
 type Json = Record<string, unknown>
 
 function isPitwallHandler(handler: unknown): boolean {
   if (typeof handler !== 'object' || handler === null) return false
   const h = handler as Json
-  return [h.command, h.commandWindows].some(
-    (c) => typeof c === 'string' && (c.includes('PITWALL_TOKEN') || c.includes(RELAY_SCRIPT_NAME))
-  )
+  return typeof h.command === 'string' && h.command.includes('PITWALL_TOKEN')
 }
 
 function handlersOf(group: unknown): unknown[] {
@@ -98,25 +52,17 @@ function handlersOf(group: unknown): unknown[] {
   return Array.isArray(hooks) ? hooks : []
 }
 
-function desiredHandler(agent: InstallableAgent, scriptPath: string): Json {
-  if (agent === 'claude') return { type: 'command', command: posixRelayCommand('claude'), timeout: 5 }
-  // Codex: async so the relay never holds up a turn; 3s is the maximum Codex allows for Interrupt.
-  return {
-    type: 'command',
-    command: posixRelayCommand('codex'),
-    commandWindows: windowsRelayCommand(scriptPath, 'codex'),
-    timeout: 3,
-    async: true
-  }
+function desiredHandler(): Json {
+  return { type: 'command', command: posixRelayCommand('claude'), timeout: 5 }
 }
 
 
 /** Pure: the config object after installing / uninstalling Pitwall's hooks. */
-export function transformConfig(root: Json, agent: InstallableAgent, action: HookAction, scriptPath: string): Json {
-  const events: readonly string[] = agent === 'claude' ? CLAUDE_EVENTS : CODEX_EVENTS
+export function transformConfig(root: Json, action: HookAction): Json {
+  const events: readonly string[] = CLAUDE_EVENTS
   const result: Json = { ...root }
   const hooks: Json = { ...((root.hooks as Json | undefined) ?? {}) }
-  const handler = desiredHandler(agent, scriptPath)
+  const handler = desiredHandler()
 
   for (const event of Object.keys(hooks)) {
     const groups = hooks[event] as unknown[]
@@ -161,8 +107,6 @@ export function transformConfig(root: Json, agent: InstallableAgent, action: Hoo
 }
 
 export interface InstallerOptions {
-  /** Where the PowerShell relay script lives (Pitwall's userData). */
-  relayScriptPath: string
   env?: NodeJS.ProcessEnv
   home?: string
 }
@@ -173,20 +117,18 @@ export class HookInstaller {
   private env: NodeJS.ProcessEnv
   private home: string
 
-  constructor(private opts: InstallerOptions) {
+  constructor(opts: InstallerOptions = {}) {
     this.env = opts.env ?? process.env
     this.home = opts.home ?? homedir()
   }
 
-  configPath(agent: InstallableAgent): string {
-    return agent === 'claude'
-      ? join(this.env.CLAUDE_CONFIG_DIR || join(this.home, '.claude'), 'settings.json')
-      : join(this.env.CODEX_HOME || join(this.home, '.codex'), 'hooks.json')
+  configPath(): string {
+    return join(this.env.CLAUDE_CONFIG_DIR || join(this.home, '.claude'), 'settings.json')
   }
 
   async status(): Promise<AgentHookStatus[]> {
     return Promise.all(
-      (['claude', 'codex'] as const).map(async (agent) => {
+      (['claude'] as const).map(async (agent) => {
         const plan = await this.plan(agent, 'install')
         const base = {
           agent,
@@ -202,7 +144,7 @@ export class HookInstaller {
   }
 
   async plan(agent: InstallableAgent, action: HookAction): Promise<HookPlan> {
-    const configPath = this.configPath(agent)
+    const configPath = this.configPath()
     const base = { agent, action, configPath }
     let text: string | null
     try {
@@ -232,7 +174,7 @@ export class HookInstaller {
       }
     }
     const normalizedBefore = JSON.stringify(root, null, 2) + '\n'
-    const after = transformConfig(root, agent, action, this.opts.relayScriptPath)
+    const after = transformConfig(root, action)
     const normalizedAfter = JSON.stringify(after, null, 2) + '\n'
     const hadPitwall = Object.values((root.hooks as Json | undefined) ?? {}).some((groups) =>
       (groups as unknown[]).some((g) => handlersOf(g).some(isPitwallHandler))
@@ -255,10 +197,6 @@ export class HookInstaller {
     if (plan.beforeHash !== beforeHash) {
       return { ok: false, error: `${plan.configPath} changed since you reviewed it. Review again.` }
     }
-    if (action === 'install' && agent === 'codex') {
-      await fs.mkdir(dirname(this.opts.relayScriptPath), { recursive: true })
-      await fs.writeFile(this.opts.relayScriptPath, RELAY_SCRIPT, 'utf-8')
-    }
     if (!plan.changed) return { ok: true }
 
     const path = plan.configPath
@@ -271,10 +209,7 @@ export class HookInstaller {
     }
     const root: Json = original && original.trim() ? (JSON.parse(original) as Json) : {}
     const eol = original?.includes('\r\n') ? '\r\n' : '\n'
-    const next = (JSON.stringify(transformConfig(root, agent, action, this.opts.relayScriptPath), null, 2) + '\n').replace(
-      /\n/g,
-      eol
-    )
+    const next = (JSON.stringify(transformConfig(root, action), null, 2) + '\n').replace(/\n/g, eol)
     await fs.mkdir(dirname(path), { recursive: true })
     const temp = `${path}.pitwall-tmp`
     await fs.writeFile(temp, next, 'utf-8')

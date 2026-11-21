@@ -19,10 +19,10 @@ const MAX_BODY_BYTES = 1_000_000
  *   second copy); terminals learn the URL from PITWALL_HOOK_URL in their environment.
  * - The bearer token identifies the terminal (see PaneTokens). Unknown or revoked tokens get
  *   401, so only processes running inside a live Pitwall terminal can report.
- * - Requests carrying an Origin header are refused: hooks are curl/PowerShell processes, which
+ * - Requests carrying an Origin header are refused: hooks are curl processes, which
  *   never send one, while a web page's request always does (blocks drive-by CSRF from a browser).
- * - Answers 204 with no body: the relay forwards nothing back into the agent (Claude Code and
- *   Codex add some hooks' stdout to the model's context).
+ * - Answers 204 with no body: the relay forwards nothing back into the agent (Claude Code
+ *   adds some hooks' stdout to the model's context).
  */
 export class HookServer {
   private server: http.Server | null = null

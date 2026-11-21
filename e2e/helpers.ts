@@ -36,13 +36,13 @@ export async function launchApp(
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const electronPath = require('electron') as unknown as string
 
-  // Agent hook config (Claude Code settings.json, Codex hooks.json) is redirected into the test
-  // profile, so no test can ever install hooks into the real ~/.claude or ~/.codex. Only the
-  // opt-in real-session harness keeps the real config (its Claude sessions need the login).
+  // Claude Code's settings.json (where hooks are installed) is redirected into the test profile,
+  // so no test can ever install hooks into the real ~/.claude. Only the opt-in real-session
+  // harness keeps the real config (its Claude sessions need the login).
   const isolation =
     options.isolateAgentConfig === false
       ? {}
-      : { CLAUDE_CONFIG_DIR: join(userDataDir, 'claude-config'), CODEX_HOME: join(userDataDir, 'codex-home') }
+      : { CLAUDE_CONFIG_DIR: join(userDataDir, 'claude-config') }
   const env = { ...process.env, ...isolation, ...extraEnv }
   // This sandboxed dev session sets ELECTRON_RUN_AS_NODE globally, which makes a bare
   // `electron` invocation run as plain Node instead of launching the app (app/BrowserWindow

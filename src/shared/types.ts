@@ -97,7 +97,7 @@ export type ReadFileResult =
   | { ok: false; reason: 'binary' | 'error'; message?: string }
 
 /** Agents whose hook config Pitwall can install its relay into. */
-export type InstallableAgent = 'claude' | 'codex'
+export type InstallableAgent = 'claude'
 export type HookAction = 'install' | 'uninstall'
 
 export interface DiffLine {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PaneTokens } from '../paneTokens'
-import { readHook, stateForCodexHook } from '../hookEvents'
+import { readHook } from '../hookEvents'
 import { HookServer } from '../hookServer'
 import type { HookEvent } from '../hookServer'
 
@@ -35,16 +35,6 @@ describe('PaneTokens', () => {
 })
 
 describe('hook adapters', () => {
-  it('maps Codex events: PermissionRequest is the waiting signal, Interrupt is idle', () => {
-    expect(stateForCodexHook('PermissionRequest')).toBe('waiting')
-    expect(stateForCodexHook('UserPromptSubmit')).toBe('working')
-    expect(stateForCodexHook('Stop')).toBe('idle')
-    expect(stateForCodexHook('Interrupt')).toBe('idle')
-    expect(stateForCodexHook('SessionEnd')).toBe('idle')
-    expect(stateForCodexHook('SubagentStop')).toBeNull()
-    expect(stateForCodexHook('SessionStart')).toBeNull()
-  })
-
   it('reads Claude payloads: state, notification text and cwd', () => {
     expect(readHook('claude', { hook_event_name: 'Notification', message: 'Claude needs permission', cwd: '/r' })).toEqual({
       state: 'waiting',
@@ -61,23 +51,6 @@ describe('hook adapters', () => {
     expect(readHook('claude', { hook_event_name: 'SessionEnd' })).toMatchObject({ state: 'idle', sessionEnded: true })
   })
 
-  it('reads Codex payloads, keeping the approval message generic (commands can contain secrets)', () => {
-    expect(
-      readHook('codex', {
-        hook_event_name: 'PermissionRequest',
-        tool_name: 'Bash',
-        tool_input: { command: 'curl -H "Authorization: Bearer s3cret" https://example.test' },
-        cwd: 'C:\\repo'
-      })
-    ).toEqual({
-      state: 'waiting',
-      message: 'Codex needs your approval',
-      cwd: 'C:\\repo',
-      sessionEnded: false,
-      eventName: 'PermissionRequest'
-    })
-  })
-
   it('reads the generic {state} shape and rejects anything unusable', () => {
     expect(readHook('generic', { state: 'working', message: 'building' })).toMatchObject({
       state: 'working',
@@ -85,7 +58,7 @@ describe('hook adapters', () => {
     })
     expect(readHook('generic', { state: 'busy' })).toBeNull()
     expect(readHook('claude', { nothing: true })).toBeNull()
-    expect(readHook('codex', 'not an object')).toBeNull()
+    expect(readHook('generic', 'not an object')).toBeNull()
   })
 })
 
@@ -135,6 +108,7 @@ describe('HookServer', () => {
     expect((await post('/claude', { hook_event_name: 'Stop' }, { Authorization: `Bearer ${'0'.repeat(64)}` })).status).toBe(401)
     expect((await post('/claude', { hook_event_name: 'Stop' }, { ...auth, Origin: 'https://evil.example' })).status).toBe(403)
     expect((await post('/gemini', { hook_event_name: 'Stop' }, auth)).status).toBe(404)
+    expect((await post('/codex', { hook_event_name: 'Stop' }, auth)).status).toBe(404)
     expect((await post('/claude', '{not json', auth)).status).toBe(400)
     expect((await post('/generic', { state: 'nope' }, auth)).status).toBe(400)
     expect((await fetch(`${url}/claude`)).status).toBe(405)
@@ -144,7 +118,7 @@ describe('HookServer', () => {
   it('stops accepting a token once it is revoked', async () => {
     const token = tokens.issue('A')
     tokens.revoke('A')
-    const res = await post('/codex', { hook_event_name: 'Stop' }, { Authorization: `Bearer ${token}` })
+    const res = await post('/claude', { hook_event_name: 'Stop' }, { Authorization: `Bearer ${token}` })
     expect(res.status).toBe(401)
   })
 
