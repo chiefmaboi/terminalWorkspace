@@ -16,6 +16,7 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Esc', 'Restore a zoomed tile (only when focus is not in a terminal)'],
   ['Ctrl+Shift+E', 'Files for the selected tile'],
   ['Ctrl+F', 'Search the zoomed terminal'],
+  ['Ctrl+C / Ctrl+Shift+C', 'Copy the selection (with nothing selected, Ctrl+C interrupts)'],
   ['Ctrl+1 … Ctrl+9', 'Jump to workspace 1–9'],
   ['Ctrl+N', 'New workspace'],
   ['Ctrl+K', 'Command palette (outside terminals)'],

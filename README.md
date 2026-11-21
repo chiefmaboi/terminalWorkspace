@@ -53,6 +53,7 @@ Codex needs no hooks: version 0.163 or newer reports its status on its own outpu
 | Ctrl+Shift+Enter | Leave the terminal / zoom from the wall |
 | Click / double-click a tile | Type into it / zoom it |
 | Mouse wheel | Scrolls the terminal you're typing into; over any other tile, the wall |
+| Ctrl+C / Ctrl+Shift+C | Copy the selection (with nothing selected, Ctrl+C interrupts as usual) |
 | Esc | Restore a zoomed tile (when focus is not in a terminal) |
 | Ctrl+Shift+E | File drawer |
 | Ctrl+1 ... Ctrl+9 | Switch workspace |

@@ -111,8 +111,26 @@ function create(id: string): TerminalEntry {
   // keydown, which blocks the browser's native paste event, so xterm's own bracketed paste
   // never runs and programs that expect the terminal to deliver pasted text (Claude Code's UI)
   // get nothing. Returning false for Ctrl+V lets the browser paste proceed normally.
+  //
+  // Copy works like Windows Terminal: Ctrl+C copies the selection (and clears it) when there is
+  // one, and otherwise goes to the program as usual (interrupt), so trying to copy never
+  // interrupts a running agent. Ctrl+Shift+C only ever copies.
   term.attachCustomKeyEventHandler((event) => {
     if (event.type === 'keydown' && event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'v') {
+      return false
+    }
+    if (
+      event.type === 'keydown' &&
+      event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      event.key.toLowerCase() === 'c' &&
+      (event.shiftKey || term.hasSelection())
+    ) {
+      event.preventDefault()
+      const text = term.getSelection()
+      term.clearSelection()
+      if (text) void navigator.clipboard.writeText(text).catch(() => undefined)
       return false
     }
     if (event.type === 'keydown' && entry.keyHook?.(event)) return false

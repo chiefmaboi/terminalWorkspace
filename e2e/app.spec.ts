@@ -377,6 +377,66 @@ test.describe('grid wall', () => {
     await expect(window.locator('.tile-zoomed')).toHaveCount(0)
   })
 
+  test('Ctrl+C copies a selection instead of interrupting, and interrupts without one; Ctrl+Shift+C only copies', async () => {
+    const { app, window } = ctx
+    const gamma = tileOf(window, 'Gamma')
+    const clipboard = (): Promise<string> => app.evaluate(({ clipboard }) => clipboard.readText())
+    const setClipboard = (text: string): Promise<void> =>
+      app.evaluate(({ clipboard }, t) => clipboard.writeText(t), text)
+    const rows = (): Promise<string[]> =>
+      gamma
+        .locator('.xterm-rows > div')
+        .evaluateAll((els) => els.map((e) => e.textContent?.trimEnd() ?? '').filter(Boolean))
+    // The shell prints "^C" for every interrupt it gets at the prompt.
+    const interrupts = async (): Promise<number> => (await rows()).filter((r) => r.endsWith('^C')).length
+    const selection = gamma.locator('.xterm-selection > div')
+    const selectLine = async (text: string): Promise<void> => {
+      const box = await gamma.locator('.xterm-rows > div', { hasText: new RegExp(`^${text}\\s*$`) }).last().boundingBox()
+      if (!box) throw new Error(`no row "${text}"`)
+      await window.mouse.move(box.x + 1, box.y + box.height / 2)
+      await window.mouse.down()
+      await window.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 10 })
+      await window.mouse.up()
+      await expect(selection).not.toHaveCount(0)
+    }
+
+    await gamma.locator('.tile-overlay').dblclick()
+    await expect(gamma).toHaveClass(/tile-zoomed/)
+    await expect.poll(() => inTerminal(window)).toBe(true)
+    await window.keyboard.type('echo copy-target')
+    await window.keyboard.press('Enter')
+    await expect.poll(async () => (await rows()).includes('copy-target')).toBe(true)
+
+    // Selection + Ctrl+C: copied, selection cleared, nothing sent to the shell.
+    await setClipboard('unchanged')
+    const before = await interrupts()
+    await selectLine('copy-target')
+    await window.keyboard.press('Control+C')
+    await expect.poll(clipboard).toBe('copy-target')
+    await expect(selection).toHaveCount(0)
+    await window.waitForTimeout(500)
+    expect(await interrupts()).toBe(before)
+
+    // No selection: Ctrl+C is the interrupt, as always.
+    await window.keyboard.press('Control+C')
+    await expect.poll(interrupts).toBe(before + 1)
+    expect(await clipboard()).toBe('copy-target')
+
+    // Ctrl+Shift+C copies a selection, and without one does nothing at all.
+    await setClipboard('unchanged')
+    await selectLine('copy-target')
+    await window.keyboard.press('Control+Shift+C')
+    await expect.poll(clipboard).toBe('copy-target')
+    await setClipboard('unchanged')
+    await window.keyboard.press('Control+Shift+C')
+    await window.waitForTimeout(500)
+    expect(await clipboard()).toBe('unchanged')
+    expect(await interrupts()).toBe(before + 1)
+
+    await window.keyboard.press('Control+Shift+Enter')
+    await expect(window.locator('.tile-zoomed')).toHaveCount(0)
+  })
+
   test('a burst of window resizes is debounced into one pty resize per terminal', async () => {
     const { app, window } = ctx
     const before = await ptyResizeCount()
