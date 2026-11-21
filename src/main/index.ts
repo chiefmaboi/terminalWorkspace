@@ -5,6 +5,8 @@ import { readFileSync, writeFileSync, promises as fsPromises } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import windowsIcon from '../../resources/icon.ico?asset'
+import windowsTrayIcon from '../../resources/tray.png?asset'
 import { Store } from './store'
 import { PtyManager } from './ptyManager'
 import { StatusManager } from './statusManager'
@@ -58,9 +60,12 @@ let isQuitting = false
 function createTray(): void {
   // The app icon is a full-color square logo, not an alpha-only silhouette, so it can't be a
   // macOS template image (that would flatten it to a solid black/white blob). Just size it for
-  // the menu bar instead; Windows keeps the smaller tray-standard size.
-  const size = process.platform === 'darwin' ? 22 : 16
-  const trayIcon = nativeImage.createFromPath(icon).resize({ width: size, height: size })
+  // the menu bar instead. Windows gets pre-rendered tray sizes (tray.png plus its @1.25x/@1.5x/@2x
+  // siblings, picked by display scale), brightened so the thin outlines stay visible that small.
+  const trayIcon =
+    process.platform === 'darwin'
+      ? nativeImage.createFromPath(icon).resize({ width: 22, height: 22 })
+      : nativeImage.createFromPath(windowsTrayIcon)
   tray = new Tray(trayIcon)
   tray.setToolTip('Pitwall')
   tray.setContextMenu(
@@ -230,7 +235,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#1e1e1e',
     title: 'Pitwall',
-    icon,
+    // Windows: the multi-size .ico, so the taskbar and title bar use frames drawn for their size.
+    icon: process.platform === 'win32' ? windowsIcon : icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
