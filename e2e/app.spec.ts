@@ -595,6 +595,35 @@ test.describe('grid wall', () => {
     expect(await scale()).toBeGreaterThan(0)
   })
 
+  test('the width option: 120 columns in the same tile boxes, and back', async () => {
+    const { window } = ctx
+    const alpha = tileOf(window, 'Alpha')
+    const width = window.locator('.wall-width select')
+    /** The terminal's own idea of its size, asked from inside the shell. */
+    const shellColumns = async (tag: string): Promise<number> => {
+      await alpha.locator('.tile-overlay').dispatchEvent('click')
+      await expect.poll(() => inTerminal(window)).toBe(true)
+      const ask = process.platform === 'win32' ? `"${tag}=$($Host.UI.RawUI.BufferSize.Width)"` : `echo "${tag}=$(tput cols)"`
+      await window.keyboard.type(ask)
+      await window.keyboard.press('Enter')
+      const screen = alpha.locator('.xterm-screen')
+      await expect(screen).toContainText(new RegExp(`${tag}=\\d+`))
+      const match = ((await screen.textContent()) ?? '').match(new RegExp(`${tag}=(\\d+)`, 'g'))!.pop()!
+      await window.keyboard.press('Control+Shift+Enter')
+      return Number(match.split('=')[1])
+    }
+
+    const box = await alpha.boundingBox()
+    expect(await shellColumns('FILLCOLS')).toBeGreaterThan(120)
+
+    await width.selectOption('120')
+    await expect.poll(() => shellColumns('NARROWCOLS')).toBe(120)
+    expect(await alpha.boundingBox()).toEqual(box) // the wall itself doesn't change
+
+    await width.selectOption('fill')
+    await expect.poll(() => shellColumns('BACKCOLS')).toBeGreaterThan(120)
+  })
+
   // macOS reports cwd through /private symlinks; compare against the resolved path there.
   const osPath = (p: string): string => (process.platform === 'darwin' ? realpathSync(p) : p)
   const titles = (): Promise<string[]> => ctx.window.locator('.wall-grid .tile-title').allTextContents()

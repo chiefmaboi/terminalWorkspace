@@ -18,7 +18,8 @@ function defaultState(): PersistedState {
       defaultStartCommand: 'claude',
       idleDebounceMs: 1200,
       paneColFractions: [],
-      tileScale: 'auto'
+      tileScale: 'auto',
+      terminalWidth: 'fill'
     }
   }
 }

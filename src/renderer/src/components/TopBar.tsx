@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { TILE_SCALE_MODES } from '../../../shared/types'
-import type { TileScaleMode, Workspace } from '../../../shared/types'
+import { TERMINAL_WIDTH_MODES, TILE_SCALE_MODES } from '../../../shared/types'
+import type { TerminalWidthMode, TileScaleMode, Workspace } from '../../../shared/types'
 import { useAppStore } from '../store/useAppStore'
 import { GearIcon } from './icons'
 
@@ -111,6 +111,7 @@ function WorkspaceSwitcher({
 
 export default function TopBar(props: Props): React.JSX.Element {
   const tileScale = useAppStore((s) => s.settings.tileScale)
+  const terminalWidth = useAppStore((s) => s.settings.terminalWidth)
   const updateAppSettings = useAppStore((s) => s.updateAppSettings)
   const setSettingsModalOpen = useAppStore((s) => s.setSettingsModalOpen)
 
@@ -137,6 +138,22 @@ export default function TopBar(props: Props): React.JSX.Element {
           {TILE_SCALE_MODES.map((mode) => (
             <option key={mode} value={mode}>
               {mode === 'auto' ? 'Auto' : mode}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label
+        className="wall-width"
+        title="Terminal width. Fill: as many columns as the zoomed view holds. 120 col: every terminal is exactly 120 columns, with bigger text in the same tiles."
+      >
+        Width
+        <select
+          value={terminalWidth}
+          onChange={(e) => updateAppSettings({ terminalWidth: e.target.value as TerminalWidthMode })}
+        >
+          {TERMINAL_WIDTH_MODES.map((mode) => (
+            <option key={mode} value={mode}>
+              {mode === 'fill' ? 'Fill' : `${mode} col`}
             </option>
           ))}
         </select>

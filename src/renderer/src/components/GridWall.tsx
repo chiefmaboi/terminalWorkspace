@@ -65,6 +65,7 @@ interface DragState {
  */
 export default function GridWall({ workspace }: Props): React.JSX.Element {
   const tileScale = useAppStore((s) => s.settings.tileScale)
+  const terminalWidth = useAppStore((s) => s.settings.terminalWidth)
   const focusedTerminalId = useAppStore((s) => s.focusedTerminalId)
   const zoomedTerminalId = useAppStore((s) => s.maximizedTerminalId)
   const setMaximized = useAppStore((s) => s.setMaximized)
@@ -136,13 +137,24 @@ export default function GridWall({ workspace }: Props): React.JSX.Element {
   )
 
 
-  // The shared geometry changed (debounced window resize): refit every terminal to the new
-  // full size; registry.fit() resizes only the PTYs whose cols/rows actually changed.
+  // Terminal width option. 'fill' (the original layout): the base font, as many columns as fit.
+  // A column count: the font size that makes exactly that many columns fill the same width, so
+  // the wall and the zoomed pane keep their size and tiles just show bigger text. Applied during
+  // render (idempotent) so terminals the tiles create in their effects, which run before this
+  // component's, already get it.
+  const fontSize = useMemo(() => {
+    if (terminalWidth === 'fill' || !hostWidth) return terminals.BASE_FONT_SIZE
+    return terminals.fontSizeForColumns(Number(terminalWidth), hostWidth) ?? terminals.BASE_FONT_SIZE
+  }, [terminalWidth, hostWidth])
+  terminals.setFontSize(fontSize)
+
+  // The shared geometry or the font changed (debounced window resize, width option): refit
+  // every terminal; registry.fit() resizes only the PTYs whose cols/rows actually changed.
   useLayoutEffect(() => {
     if (!hostWidth || !hostHeight) return
     const raf = requestAnimationFrame(() => terminals.fitAll())
     return () => cancelAnimationFrame(raf)
-  }, [hostWidth, hostHeight])
+  }, [hostWidth, hostHeight, fontSize])
 
   // ── Drag to reorder ────────────────────────────────────────────────────────────────────────
   useEffect(() => {

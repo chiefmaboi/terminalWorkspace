@@ -15,6 +15,10 @@ import { xtermThemeFor } from './themes'
  */
 
 export const SCROLLBACK_LINES = 5000
+/** Font size of the original layout; the fixed-column width option enlarges it (GridWall). */
+export const BASE_FONT_SIZE = 13
+const FONT_FAMILY = 'Cascadia Code, Consolas, monospace'
+let fontSize = BASE_FONT_SIZE
 
 
 interface TerminalEntry {
@@ -75,8 +79,8 @@ function create(id: string): TerminalEntry {
     scrollback: SCROLLBACK_LINES,
     cursorBlink: true,
     convertEol: true,
-    fontFamily: 'Cascadia Code, Consolas, monospace',
-    fontSize: 13,
+    fontFamily: FONT_FAMILY,
+    fontSize,
     theme: xtermThemeFor(currentTheme)
   })
   const fit = new FitAddon()
@@ -196,6 +200,76 @@ export function fit(id: string): void {
 
 export function fitAll(): void {
   for (const id of entries.keys()) fit(id)
+}
+
+/**
+ * Font size of every terminal (existing and future). Each terminal re-measures its cells; the
+ * caller then refits (fitAll) so cols/rows and the PTYs follow.
+ */
+export function setFontSize(size: number): void {
+  if (size === fontSize) return
+  fontSize = size
+  for (const entry of entries.values()) entry.term.options.fontSize = size
+}
+
+const fontForColumns = new Map<string, number>()
+/** xterm's scrollbar width when it can't measure one (Viewport: `... || 15`). */
+const XTERM_FALLBACK_SCROLLBAR_PX = 15
+interface XtermCore {
+  viewport?: { scrollBarWidth: number }
+  _renderService: { dimensions: { css: { cell: { width: number } } } }
+}
+
+/**
+ * The largest font size at which a terminal host `hostWidth` px wide fits exactly `columns`
+ * columns, or null if it cannot (tiny window). Measured on a throwaway terminal with the same
+ * font and padding, using FitAddon's math: cols = floor((width - padding - scrollbar) / cell).
+ *
+ * The scrollbar term is xterm's per-terminal measurement, taken once when a terminal opens, with
+ * a 15px fallback when it can't measure (a host without layout yet). So terminals can carry
+ * slightly different values; sizing for the widest makes every one of them land on `columns`:
+ * a narrower scrollbar only adds a few px of slack, far less than a cell, never a column.
+ */
+export function fontSizeForColumns(columns: number, hostWidth: number): number | null {
+  const key = `${window.devicePixelRatio}:${columns}:${hostWidth}`
+  const cached = fontForColumns.get(key)
+  if (cached) return cached
+  const probe = document.createElement('div')
+  probe.className = 'terminal-host'
+  probe.style.cssText = `position:fixed;left:-100000px;top:0;width:${hostWidth}px;height:400px;visibility:hidden`
+  document.body.appendChild(probe)
+  const term = new Terminal({ scrollback: SCROLLBACK_LINES, fontFamily: FONT_FAMILY, fontSize: BASE_FONT_SIZE })
+  try {
+    term.open(probe)
+    // Private API, the same values FitAddon itself reads.
+    const core = (term as unknown as { _core: XtermCore })._core
+    const style = window.getComputedStyle(term.element!)
+    const padding = parseInt(style.paddingLeft) + parseInt(style.paddingRight)
+    const scrollbar = Math.max(core.viewport?.scrollBarWidth ?? 0, XTERM_FALLBACK_SCROLLBAR_PX)
+    const available = hostWidth - padding - scrollbar
+    const colsAt = (size: number): number => {
+      term.options.fontSize = size
+      const cell = core._renderService.dimensions.css.cell.width
+      return cell > 0 ? Math.floor(available / cell) : 0
+    }
+    // Fewer columns as the font grows: bisect for the largest size that still fits them all.
+    let lo = 4
+    let hi = 96
+    if (colsAt(lo) < columns) return null
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2
+      if (colsAt(mid) >= columns) lo = mid
+      else hi = mid
+    }
+    const size = Math.floor(lo * 1000) / 1000
+    fontForColumns.set(key, size)
+    return size
+  } catch {
+    return null
+  } finally {
+    term.dispose()
+    probe.remove()
+  }
 }
 
 /** Start the PTY at the terminal's current size, once. */

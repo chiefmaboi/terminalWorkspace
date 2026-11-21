@@ -37,6 +37,14 @@ export type AppTheme = 'dark' | 'light' | 'dracula' | 'nord' | 'solarized'
 export type TileScaleMode = 'auto' | '0.5' | '0.4' | '0.33' | '0.25'
 export const TILE_SCALE_MODES: readonly TileScaleMode[] = ['auto', '0.5', '0.4', '0.33', '0.25']
 
+/**
+ * How wide every terminal is. 'fill': as many columns as fit the zoomed view (88% of the
+ * window) at the base font size. A number: exactly that many columns, at whatever font size
+ * makes them fill the same width, so tiles show bigger text in the same boxes.
+ */
+export type TerminalWidthMode = 'fill' | '120'
+export const TERMINAL_WIDTH_MODES: readonly TerminalWidthMode[] = ['fill', '120']
+
 export interface AppSettings {
   windowBounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean }
 
@@ -49,6 +57,7 @@ export interface AppSettings {
   /** Unused since the grid wall replaced column tiling; kept so the saved format stays stable. */
   paneColFractions: number[]
   tileScale: TileScaleMode
+  terminalWidth: TerminalWidthMode
 }
 
 /** The subset of AppSettings worth offering to restore from someone else's export — pure

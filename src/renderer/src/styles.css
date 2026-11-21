@@ -875,7 +875,8 @@ button {
    Every terminal renders at the shared full-size geometry (--host-w × --host-h, the size a
    maximized pane shows) and is displayed at --tile-scale. GridWall sets these variables. */
 
-.wall-scale {
+.wall-scale,
+.wall-width {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -884,7 +885,8 @@ button {
   color: var(--text-dim);
 }
 
-.wall-scale select {
+.wall-scale select,
+.wall-width select {
   background: var(--bg-elevated);
   color: var(--text);
   border: 1px solid var(--border);

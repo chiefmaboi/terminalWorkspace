@@ -61,7 +61,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     defaultStartCommand: 'claude',
     idleDebounceMs: 1200,
     paneColFractions: [],
-    tileScale: 'auto'
+    tileScale: 'auto',
+    terminalWidth: 'fill'
   },
   openedWorkspaceIds: new Set(),
   focusedTerminalId: null,
