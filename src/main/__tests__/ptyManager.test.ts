@@ -116,6 +116,14 @@ describe('PtyManager', () => {
     expect(sm.get('t')).toBe('idle')
   })
 
+  it('starts an interactive Codex start command with --no-daemon (and leaves other commands alone)', () => {
+    const { pm } = setup()
+    pm.start('c', '/p', 'codex -a on-request')
+    expect(procs[0].write).toHaveBeenCalledWith(expect.stringMatching(/^codex --no-daemon -a on-request\r?\n$/))
+    pm.start('k', '/p', 'claude --model haiku')
+    expect(procs[1].write).toHaveBeenCalledWith(expect.stringMatching(/^claude --model haiku\r?\n$/))
+  })
+
   it("injects each terminal's own PITWALL_* variables after filtering inherited ones", async () => {
     const { spawn } = await import('node-pty')
     process.env.PITWALL_TOKEN = 'inherited-from-a-parent-pitwall'

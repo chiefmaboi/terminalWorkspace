@@ -42,6 +42,10 @@ keeps your other settings and hooks. **Remove** takes it out again.
 The hook only acts inside a Pitwall terminal; sessions started anywhere else are unaffected.
 Codex asks you to trust new hooks once: after installing, run `/hooks` in Codex and trust Pitwall's.
 
+Inside Pitwall terminals, interactive Codex (`codex`, `codex resume`, `codex fork`) runs with
+`--no-daemon`, added automatically. Otherwise Codex hands the session to its shared background
+server, whose hooks can't tell which terminal they belong to. Codex outside Pitwall is unchanged.
+
 ## Keys
 
 | Key | Action |

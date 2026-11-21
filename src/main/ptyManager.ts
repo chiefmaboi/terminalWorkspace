@@ -4,6 +4,7 @@ import os from 'os'
 import { OscStream } from './oscStream'
 import { buildPtyEnv } from './ptyEnv'
 import { foregroundCwd } from './processCwd'
+import { CODEX_SESSION_SUBCOMMANDS, CODEX_SUBCOMMANDS, withCodexNoDaemon } from './codexNoDaemon'
 import type { PaneCwd } from '../shared/types'
 import type { StatusManager } from './statusManager'
 
@@ -19,6 +20,11 @@ const DEFAULT_SHELL = process.platform === 'win32' ? 'powershell.exe' : (process
 // no API for reading another process's cwd, and PowerShell's `cd` doesn't change its process cwd
 // anyway, so the shell telling us is the only reliable signal. The user's prompt (profile,
 // oh-my-posh, ...) is wrapped, not replaced, and renders exactly as before.
+//
+// It also wraps `codex` so that interactive Codex typed in a Pitwall terminal runs with
+// --no-daemon (see codexNoDaemon.ts for why); the real executable is resolved from PATH and every
+// other invocation passes through untouched.
+const psList = (items: readonly string[]): string => items.map((s) => `'${s}'`).join(', ')
 export const POWERSHELL_INTEGRATION = [
   '$global:__pitwallPrompt = $function:prompt',
   'function global:prompt {',
@@ -26,6 +32,14 @@ export const POWERSHELL_INTEGRATION = [
   "  $osc = ''",
   "  if ($loc.Provider.Name -eq 'FileSystem') { $osc = \"$([char]27)]9;9;`\"$($loc.ProviderPath)`\"$([char]27)\\\" }",
   '  if ($global:__pitwallPrompt) { $osc + (& $global:__pitwallPrompt) } else { $osc + "PS $loc> " }',
+  '}',
+  'function global:codex {',
+  "  $real = Get-Command codex -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1",
+  "  if (-not $real) { Write-Error 'codex: command not found'; return }",
+  "  $first = $args | Where-Object { \"$_\" -notlike '-*' } | Select-Object -First 1",
+  `  $sub = @(${psList(CODEX_SUBCOMMANDS)}) -contains "$first"`,
+  `  $session = (-not $sub) -or (@(${psList(CODEX_SESSION_SUBCOMMANDS)}) -contains "$first")`,
+  "  if ($session -and -not ($args -contains '--no-daemon')) { & $real.Source --no-daemon @args } else { & $real.Source @args }",
   '}'
 ].join('\n')
 
@@ -165,7 +179,9 @@ export class PtyManager {
     })
 
     if (startCommand && startCommand.trim().length > 0) {
-      proc.write(`${startCommand}${os.EOL}`)
+      // Interactive Codex gets --no-daemon here too, so it also applies on macOS/Linux shells,
+      // which have no Pitwall wrapper for typed commands.
+      proc.write(`${withCodexNoDaemon(startCommand)}${os.EOL}`)
     }
   }
 
