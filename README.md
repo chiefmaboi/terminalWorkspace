@@ -12,6 +12,8 @@ Pitwall is a fork of [ittop](https://github.com/pottz91/ittop) by pottz91 (MIT).
 
 - Grid wall of live terminals per workspace, scaled to fit (Auto, or a fixed 0.5 / 0.4 / 0.33 / 0.25).
 - Zoom a tile over the dimmed wall; terminals never resize when you zoom, so agent UIs don't reflow.
+- Terminal width: 120 columns by default, readable even in small tiles and a normal-size terminal
+  when zoomed, or Fill (as many columns as 88% of the window holds).
 - Status per terminal: working, idle, or waiting (glowing outline plus a desktop notification).
   Codex reports it on its own output, Claude Code through hooks, anything else from terminal activity.
 - Drag tiles to reorder, right-click to pin a tile at 2x2.
@@ -50,6 +52,7 @@ Codex needs no hooks: version 0.163 or newer reports its status on its own outpu
 | Enter | Zoom the selected tile and type into it |
 | Ctrl+Shift+Enter | Leave the terminal / zoom from the wall |
 | Click / double-click a tile | Type into it / zoom it |
+| Mouse wheel | Scrolls the terminal you're typing into; over any other tile, the wall |
 | Esc | Restore a zoomed tile (when focus is not in a terminal) |
 | Ctrl+Shift+E | File drawer |
 | Ctrl+1 ... Ctrl+9 | Switch workspace |

@@ -62,7 +62,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     idleDebounceMs: 1200,
     paneColFractions: [],
     tileScale: 'auto',
-    terminalWidth: 'fill'
+    terminalWidth: '120'
   },
   openedWorkspaceIds: new Set(),
   focusedTerminalId: null,

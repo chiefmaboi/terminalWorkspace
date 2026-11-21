@@ -38,9 +38,9 @@ export type TileScaleMode = 'auto' | '0.5' | '0.4' | '0.33' | '0.25'
 export const TILE_SCALE_MODES: readonly TileScaleMode[] = ['auto', '0.5', '0.4', '0.33', '0.25']
 
 /**
- * How wide every terminal is. 'fill': as many columns as fit the zoomed view (88% of the
- * window) at the base font size. A number: exactly that many columns, at whatever font size
- * makes them fill the same width, so tiles show bigger text in the same boxes.
+ * How wide every terminal is. A number (default '120'): exactly that many columns, shown at a
+ * normal text size when zoomed and scaled to fit each tile, so tiles show much bigger text.
+ * 'fill': as many columns as fit the zoomed view (88% of the window) at the base font size.
  */
 export type TerminalWidthMode = 'fill' | '120'
 export const TERMINAL_WIDTH_MODES: readonly TerminalWidthMode[] = ['fill', '120']

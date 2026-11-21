@@ -66,7 +66,7 @@ test.describe('workspace lifecycle', () => {
     await expect(window.locator('.tile .tile-title')).toContainText('Main')
     // The pty actually starts and the shell prints something — proves the IPC round trip
     // (renderer -> main -> node-pty -> back to renderer) works end to end, not just the UI shell.
-    await expect(window.locator('.xterm-screen')).toContainText('hello-e2e', { timeout: 15_000 })
+    await expect(window.locator('.tile .xterm-screen')).toContainText('hello-e2e', { timeout: 15_000 })
   })
 })
 
@@ -407,6 +407,8 @@ test.describe('grid wall', () => {
     const { window } = ctx
     const alpha = tileOf(window, 'Alpha')
     const beta = tileOf(window, 'Beta')
+    // The 88% pane is the Fill width option's (the 120 col default shows a normal-size pane).
+    await window.locator('.wall-width select').selectOption('fill')
     await alpha.locator('.tile-overlay').dblclick()
     await expect(alpha).toHaveClass(/tile-zoomed/)
     await settled(alpha)
@@ -463,6 +465,7 @@ test.describe('grid wall', () => {
     await dim.click({ position: { x: 4, y: 4 } })
     await expect(window.locator('.tile-zoomed')).toHaveCount(0)
     await expect(dim).not.toHaveClass(/visible/)
+    await window.locator('.wall-width select').selectOption('120')
   })
 
   test('zoom and restore animate with FLIP; reduced motion skips the animation', async () => {
@@ -568,6 +571,44 @@ test.describe('grid wall', () => {
     await window.locator('.wall-scale select').selectOption('auto')
   })
 
+  test('the wheel scrolls the terminal you are typing into; over any other tile, the wall', async () => {
+    const { window } = ctx
+    const scroller = window.locator('.wall-scroll')
+    const wallTop = (): Promise<number> => scroller.evaluate((el) => el.scrollTop)
+    const historyTop = (title: string): Promise<number> =>
+      tileOf(window, title).locator('.xterm-viewport').evaluate((el) => el.scrollTop)
+    const pointAt = async (title: string): Promise<void> => {
+      const box = (await tileOf(window, title).boundingBox())!
+      await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    }
+    // 0.5 with five tiles: three rows, so the wall itself can scroll too.
+    await window.locator('.wall-scale select').selectOption('0.5')
+    await expect(window.locator('.wall-grid')).toHaveAttribute('data-cols', '2')
+    await scroller.evaluate((el) => (el.scrollTop = 0))
+
+    // Alpha gets history to scroll through, and keeps the typing focus.
+    const alpha = tileOf(window, 'Alpha')
+    await alpha.locator('.tile-overlay').click()
+    await window.keyboard.type(process.platform === 'win32' ? '1..150 | % { "wheel-$_" }' : 'seq 1 150 | sed "s/^/wheel-/"')
+    await window.keyboard.press('Enter')
+    await expect(alpha.locator('.xterm-screen')).toContainText('wheel-150')
+    const atBottom = await historyTop('Alpha')
+    await pointAt('Alpha')
+    await window.mouse.wheel(0, -400)
+    await expect.poll(() => historyTop('Alpha')).toBeLessThan(atBottom)
+    expect(await wallTop()).toBe(0) // the wall stayed put
+
+    // Beta isn't the one you're typing into: the wheel scrolls the wall, not Beta.
+    const betaTop = await historyTop('Beta')
+    await pointAt('Beta')
+    await window.mouse.wheel(0, 400)
+    await expect.poll(wallTop).toBeGreaterThan(0)
+    expect(await historyTop('Beta')).toBe(betaTop)
+
+    await scroller.evaluate((el) => (el.scrollTop = 0))
+    await window.locator('.wall-scale select').selectOption('auto')
+  })
+
   test('the scale selector switches tile scale and column count at runtime', async () => {
     const { window } = ctx
     const grid = window.locator('.wall-grid')
@@ -628,8 +669,9 @@ test.describe('grid wall', () => {
       return size
     }
 
+    await width.selectOption('fill')
+    await expect.poll(() => shellColumns('FILLCOLS')).toBeGreaterThan(120)
     const box = await alpha.boundingBox()
-    expect(await shellColumns('FILLCOLS')).toBeGreaterThan(120)
     const fillZoom = await zoomedSize()
 
     await width.selectOption('120')
@@ -642,6 +684,7 @@ test.describe('grid wall', () => {
 
     await width.selectOption('fill')
     await expect.poll(() => shellColumns('BACKCOLS')).toBeGreaterThan(120)
+    await width.selectOption('120') // back to the default for the tests that follow
     window.off('pageerror', onError)
     expect(errors).toEqual([])
   })

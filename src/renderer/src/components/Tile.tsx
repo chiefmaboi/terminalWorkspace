@@ -127,6 +127,20 @@ export default function Tile({ terminal, selected, zoomed, slotStyle, dragging, 
     }
   }, [id])
 
+  // The wheel over the tile you're typing into scrolls its terminal, as it would zoomed. Over
+  // any other tile it scrolls the wall. Native listener: React registers wheel handlers as
+  // passive, which can't stop the wall from scrolling too.
+  const overlayRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const overlay = overlayRef.current
+    if (!overlay) return
+    const onWheel = (event: WheelEvent): void => {
+      if (terminals.hasFocus(id) && terminals.forwardWheel(id, event)) event.preventDefault()
+    }
+    overlay.addEventListener('wheel', onWheel, { passive: false })
+    return () => overlay.removeEventListener('wheel', onWheel)
+  }, [id, zoomedLayout])
+
   // FLIP between the grid slot and the floating pane. Only transform is animated, so it stays
   // on the compositor; the terminal content itself never re-lays out during the animation.
   const lastZoomed = useRef(zoomed)
@@ -271,6 +285,7 @@ export default function Tile({ terminal, selected, zoomed, slotStyle, dragging, 
               would land on the wrong cells. The overlay takes the pointer instead. */}
           {!zoomedLayout && (
             <div
+              ref={overlayRef}
               className="tile-overlay"
               onClick={() => {
                 focusTerminal(id)

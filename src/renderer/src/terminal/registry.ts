@@ -204,6 +204,46 @@ export function fitAll(): void {
   for (const id of entries.keys()) fit(id)
 }
 
+/** Whether terminal `id` has the keyboard focus (you're typing into it). */
+export function hasFocus(id: string): boolean {
+  const entry = entries.get(id)
+  return !!entry && entry.host.contains(document.activeElement)
+}
+
+/**
+ * Hand a wheel event from over a tile to that tile's terminal, which then scrolls exactly as it
+ * would zoomed (xterm's own wheel handling: its history, arrow keys on the alternate screen, or
+ * a mouse event for programs that asked for them). The pointer position is mapped through the
+ * tile's scale first: xterm divides the offset inside its on-screen (scaled) rect by unscaled
+ * cell sizes, so the raw position would point at the wrong cell.
+ */
+export function forwardWheel(id: string, event: WheelEvent): boolean {
+  const screen = entries.get(id)?.term.element?.querySelector<HTMLElement>('.xterm-screen')
+  if (!screen || screen.offsetWidth === 0 || screen.offsetHeight === 0) return false
+  const rect = screen.getBoundingClientRect()
+  const scaleX = rect.width / screen.offsetWidth
+  const scaleY = rect.height / screen.offsetHeight
+  screen.dispatchEvent(
+    new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaZ: event.deltaZ,
+      deltaMode: event.deltaMode,
+      clientX: rect.left + (event.clientX - rect.left) / scaleX,
+      clientY: rect.top + (event.clientY - rect.top) / scaleY,
+      screenX: event.screenX,
+      screenY: event.screenY,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      metaKey: event.metaKey
+    })
+  )
+  return true
+}
+
 /**
  * Font size of every terminal (existing and future). Each terminal re-measures its cells; the
  * caller then refits (fitAll) so cols/rows and the PTYs follow.

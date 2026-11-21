@@ -19,7 +19,7 @@ function defaultState(): PersistedState {
       idleDebounceMs: 1200,
       paneColFractions: [],
       tileScale: 'auto',
-      terminalWidth: 'fill'
+      terminalWidth: '120'
     }
   }
 }
