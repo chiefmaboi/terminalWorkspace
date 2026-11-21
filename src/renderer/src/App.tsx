@@ -51,7 +51,7 @@ export default function App(): React.JSX.Element {
   const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false)
   const [terminalDialog, setTerminalDialog] = useState<{ workspaceId: string; initialPath?: string } | null>(null)
   const [filesOpen, setFilesOpen] = useState(false)
-  const [showRestorePrompt, setShowRestorePrompt] = useState(false)
+
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
@@ -95,9 +95,12 @@ export default function App(): React.JSX.Element {
     document.title = activeWorkspace ? `${activeWorkspace.name}: Pitwall` : 'Pitwall'
   }, [activeWorkspace])
 
+  // Start the way it ended: reopen the last active workspace (its terminals start with its
+  // tiles; order, pins and scale are saved). No prompt.
   useEffect(() => {
     if (!loaded) return
-    if (workspaces.length > 0 && settings.activeWorkspaceId) setShowRestorePrompt(true)
+    const last = workspaces.find((w) => w.id === settings.activeWorkspaceId)
+    if (last) openWorkspace(last.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded])
 
@@ -236,10 +239,6 @@ export default function App(): React.JSX.Element {
     setTerminalDialog({ workspaceId: activeWorkspace.id, initialPath: cwd?.cwd ?? selected.projectPath })
   }
 
-  function applyRestore(shouldRestore: boolean): void {
-    setShowRestorePrompt(false)
-    if (shouldRestore && settings.activeWorkspaceId) openWorkspace(settings.activeWorkspaceId)
-  }
 
   return (
     <TileActionsContext.Provider value={tileActions}>
@@ -284,13 +283,12 @@ export default function App(): React.JSX.Element {
             </div>
           )}
           {/* Tiles start their terminals when they mount, so the wall only renders for a
-              workspace opened in THIS run (Restart sessions, the switcher, Ctrl+1-9, Start
-              terminals). The remembered last workspace alone must never spawn anything: that is
-              what "Not now" on the restore prompt promises. */}
+              workspace opened in this run (reopened at launch, the switcher, Ctrl+1-9, Start
+              terminals). Fallback if the active workspace somehow isn't open. */}
           {activeWorkspace &&
             activeWorkspace.terminals.length > 0 &&
             !openedWorkspaceIds.has(activeWorkspace.id) &&
-            !showRestorePrompt && (
+            loaded && (
               <div className="empty-main not-running">
                 <div className="empty-main-mark">&gt;_</div>
                 <p>&quot;{activeWorkspace.name}&quot; isn&apos;t running</p>
@@ -372,20 +370,7 @@ export default function App(): React.JSX.Element {
             untouched.
           </ConfirmDialog>
         )}
-        {showRestorePrompt && (
-          <div className="modal-overlay">
-            <div className="modal">
-              <h2>Restore previous session?</h2>
-              <p>Terminal sessions don&apos;t survive an app restart. Start them again now?</p>
-              <div className="modal-actions">
-                <button onClick={() => applyRestore(false)}>Not now</button>
-                <button className="primary" onClick={() => applyRestore(true)}>
-                  Restart sessions
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+
         {shortcutsOpen && <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
         {paletteOpen && (
           <CommandPalette onClose={() => setPaletteOpen(false)} onNewWorkspace={() => setWorkspaceDialogOpen(true)} />
