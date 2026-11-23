@@ -18,6 +18,8 @@ Pitwall is a fork of [ittop](https://github.com/pottz91/ittop) by pottz91 (MIT).
   Codex reports it on its own output, Claude Code through hooks, anything else from terminal activity.
 - Drag tiles to reorder, right-click to pin a tile at 2x2.
 - File drawer for the selected terminal, rooted at its current folder (follows worktrees).
+  Links in Markdown previews open in the drawer, as on GitHub: other files, `#sections`, and
+  folders, with Back to retrace your steps. Web links open in your browser.
 - Keyboard driven: arrow keys and Enter on the wall, every key goes to the terminal once inside.
 
 ## Getting started

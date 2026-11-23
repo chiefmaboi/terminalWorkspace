@@ -23,7 +23,7 @@ import { Store } from './store'
 import { PtyManager } from './ptyManager'
 import { StatusManager } from './statusManager'
 import { HookServer } from './hookServer'
-import { GitBranchPoller } from './git'
+import { GitBranchPoller, findRepoRoot } from './git'
 import { PaneTokens } from './paneTokens'
 import { HookInstaller } from './hookInstaller'
 import { IPC } from '../shared/types'
@@ -42,6 +42,7 @@ import type {
   InstallableAgent,
   ListDirResult,
   PaneCwd,
+  PathStat,
   ReadFileResult,
   RestorableSettings,
   Terminal,
@@ -636,6 +637,25 @@ function registerIpcHandlers(): void {
       await handle?.close()
     }
   })
+
+  ipcMain.handle(IPC.fsStat, async (_event, targetPath: unknown): Promise<PathStat> => {
+    if (typeof targetPath !== 'string' || !targetPath) return { kind: 'missing' }
+    try {
+      const stat = await fsPromises.stat(targetPath)
+      if (stat.isDirectory()) return { kind: 'directory' }
+      // Devices and pipes (CON, NUL, named pipes) are never opened: reading one can block.
+      if (!stat.isFile()) return { kind: 'error', message: 'Not a regular file or folder.' }
+      return { kind: 'file' }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return { kind: 'missing' }
+      return { kind: 'error', message: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle(IPC.fsRepoRoot, (_event, dir: unknown): Promise<string | null> =>
+    typeof dir === 'string' && dir ? findRepoRoot(dir) : Promise.resolve(null)
+  )
 
   ipcMain.handle(IPC.settingsGet, () => store.getState().settings)
 

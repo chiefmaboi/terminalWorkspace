@@ -1,4 +1,6 @@
 import { execFile } from 'child_process'
+import { promises as fsPromises } from 'fs'
+import { dirname, join, resolve } from 'path'
 
 export function getGitBranch(cwd: string): Promise<string | null> {
   return new Promise((resolve) => {
@@ -16,6 +18,26 @@ export function getGitBranch(cwd: string): Promise<string | null> {
       }
     )
   })
+}
+
+/**
+ * The repository a folder belongs to: the nearest folder at or above it holding a `.git` entry
+ * (a folder in a normal clone, a file in a worktree or submodule). Found without running git,
+ * so nothing in an untrusted repository's config can execute.
+ */
+export async function findRepoRoot(start: string): Promise<string | null> {
+  let dir = resolve(start)
+  for (;;) {
+    try {
+      await fsPromises.stat(join(dir, '.git'))
+      return dir
+    } catch {
+      // not here: keep walking up
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
 }
 
 const POLL_INTERVAL_MS = 5000

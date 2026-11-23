@@ -15,6 +15,7 @@ import type {
   ImportPrepareResult,
   ListDirResult,
   PaneCwd,
+  PathStat,
   ReadFileResult,
   Terminal,
   TerminalRuntimeState,
@@ -64,6 +65,9 @@ const api = {
 
   listDir: (path: string): Promise<ListDirResult> => ipcRenderer.invoke(IPC.fsListDir, path),
   readFile: (path: string): Promise<ReadFileResult> => ipcRenderer.invoke(IPC.fsReadFile, path),
+  statPath: (path: string): Promise<PathStat> => ipcRenderer.invoke(IPC.fsStat, path),
+  /** Repository root of a folder (nearest `.git` at or above it), or null outside one. */
+  repoRoot: (dir: string): Promise<string | null> => ipcRenderer.invoke(IPC.fsRepoRoot, dir),
   getTerminalCwd: (id: string): Promise<PaneCwd | null> => ipcRenderer.invoke(IPC.ptyGetCwd, id),
   setTerminalPinned: (id: string, pinned: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC.terminalSetPinned, id, pinned),

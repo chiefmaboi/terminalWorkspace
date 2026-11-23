@@ -368,6 +368,26 @@ body,
   overflow: auto;
 }
 
+/* A folder outside the tile's folder, reached from a link, and a link whose target is missing. */
+.folder-listing-path {
+  padding: 6px 10px 4px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+.folder-listing-up-label {
+  margin-left: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.file-preview-missing .file-tree-hint {
+  padding-top: 12px;
+  color: var(--text);
+}
+
 .file-preview-content {
   margin: 0;
   padding: 10px;

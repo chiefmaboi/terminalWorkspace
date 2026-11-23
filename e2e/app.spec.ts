@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 import { execFileSync } from 'child_process'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { launchApp, closeApp } from './helpers'
 import type { LaunchedApp } from './helpers'
 
@@ -1059,6 +1059,213 @@ test.describe('grid wall', () => {
     await expect(slotOf('Beta')).toHaveClass(/tile-pinned/)
     await expect(slotOf('Gamma')).not.toHaveClass(/tile-pinned/)
     expect(await titles()).toEqual(order)
+  })
+})
+
+test.describe('markdown links in the file drawer', () => {
+  let ctx: LaunchedApp
+  let base: string
+  let repo: string
+  let tileDir: string
+
+  const drawer = () => ctx.window.locator('.file-drawer')
+  const header = () => drawer().locator('.file-panel-header')
+  const markdown = () => drawer().locator('.file-preview-markdown')
+  const listing = () => drawer().locator('.folder-listing')
+  const link = (name: string) => markdown().getByRole('link', { name, exact: true })
+  const back = (): Promise<void> => drawer().locator('.file-panel-back').click()
+  const previewScrollTop = (): Promise<number> =>
+    ctx.window.evaluate(() => document.querySelector('.file-drawer .file-preview')!.scrollTop)
+  /** How far below the preview's top edge an element sits (about 8 once scrolled to). */
+  const offsetInPreview = (selector: string): Promise<number> =>
+    ctx.window.evaluate((sel) => {
+      const scroller = document.querySelector('.file-drawer .file-preview')!
+      return document.querySelector(sel)!.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+    }, selector)
+  const openedUrls = (): Promise<string[]> =>
+    ctx.app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened)
+
+  test.beforeAll(async () => {
+    base = mkdtempSync(join(tmpdir(), 'pitwall-md-'))
+    repo = join(base, 'repo')
+    tileDir = join(repo, 'packages', 'web')
+    const write = (rel: string, text: string): void => {
+      const path = join(repo, rel)
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, text)
+    }
+    // A .git folder is all a repository needs for "/" links (found without running git).
+    mkdirSync(join(repo, '.git'), { recursive: true })
+    const filler = Array.from({ length: 80 }, (_, i) => `Filler paragraph ${i}.`).join('\n\n')
+    write('docs/root-guide.md', '# Root guide\n')
+    write('shared/notes.txt', 'shared notes\n')
+    write('shared/sub/deep.txt', 'deep file\n')
+    write('packages/web/docs/guide.md', `# Guide\n\n${filler}\n\n## Setup steps\n\nSetup body.\n\n${filler}\n`)
+    write('packages/web/docs/my notes.md', '# My notes\n')
+    write('packages/web/src/app.ts', 'export const app = 1\n')
+    write('packages/web/src/lib/util.ts', 'export const util = 1\n')
+    write(
+      'packages/web/README.md',
+      [
+        '# Web package',
+        '',
+        '- [Guide](docs/guide.md)',
+        '- [Guide setup](./docs/guide.md#setup-steps)',
+        '- [Notes](<docs/my notes.md>)',
+        '- [Local section](#more-links)',
+        '- [App source](src/app.ts)',
+        '- [Lib folder](src/lib/)',
+        '- [Shared folder](../../shared)',
+        '- [Root guide](/docs/root-guide.md)',
+        '- [Missing](docs/missing.md)',
+        '- [Website](https://example.com/pitwall-e2e)',
+        '- [Mail](mailto:someone@example.invalid)',
+        '',
+        filler,
+        '',
+        '## More links',
+        '',
+        'More text.',
+        '',
+        filler,
+        ''
+      ].join('\n')
+    )
+
+    ctx = await launchApp()
+    await createWorkspace(ctx.window, 'Docs')
+    await addTerminal(ctx.window, 'Docs', 'Web', 'echo web-ready', tileDir)
+    await expect(ctx.window.locator('.tile .xterm-screen')).toContainText('web-ready', { timeout: 15_000 })
+    // Web links end in shell.openExternal; record them instead of opening a browser.
+    await ctx.app.evaluate(({ shell }) => {
+      const g = globalThis as unknown as { __opened: string[] }
+      g.__opened = []
+      shell.openExternal = async (url: string): Promise<void> => {
+        g.__opened.push(url)
+      }
+    })
+  })
+
+  test.afterAll(async () => {
+    await closeApp(ctx)
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        rmSync(base, { recursive: true, force: true })
+        return
+      } catch {
+        await new Promise((r) => setTimeout(r, 200))
+      }
+    }
+  })
+
+  test('links open files, sections and folders in the drawer, and Back steps through them', async () => {
+    const { window } = ctx
+    const startUrl = window.url()
+    await window.locator('.tile .tile-overlay').first().dispatchEvent('click')
+    await expect.poll(() => inTerminal(window)).toBe(true)
+    await window.keyboard.press('Control+Shift+E')
+    await expect(drawer().locator('.file-drawer-path')).toHaveText(tileDir)
+    await drawer().locator('.file-tree-row', { hasText: 'README.md' }).click()
+    await expect(markdown().locator('h1')).toHaveText('Web package')
+    await expect(header()).toContainText('README.md')
+
+    // Hovering a link shows where it goes.
+    await expect(link('Guide')).toHaveAttribute('title', join(tileDir, 'docs', 'guide.md'))
+    await expect(link('Guide setup')).toHaveAttribute('title', `${join(tileDir, 'docs', 'guide.md')}#setup-steps`)
+    await expect(link('Root guide')).toHaveAttribute('title', join(repo, 'docs', 'root-guide.md'))
+    await expect(link('Website')).toHaveAttribute('title', 'https://example.com/pitwall-e2e')
+
+    // A section of the same page scrolls the preview and stays on the file.
+    await link('Local section').click()
+    await expect.poll(() => offsetInPreview('#md-more-links')).toBeLessThan(40)
+    expect(await offsetInPreview('#md-more-links')).toBeGreaterThanOrEqual(0)
+    await expect(header()).toContainText('README.md')
+
+    // A file link opens that file; Back returns to the same spot in the previous one.
+    // (dispatchEvent: clicking without first scrolling the link into view.)
+    const readmeScroll = await previewScrollTop()
+    expect(readmeScroll).toBeGreaterThan(100)
+    await link('Guide').dispatchEvent('click')
+    await expect(markdown().locator('h1')).toHaveText('Guide')
+    await expect(header()).toContainText('guide.md')
+    await back()
+    await expect(markdown().locator('h1')).toHaveText('Web package')
+    await expect.poll(async () => Math.abs((await previewScrollTop()) - readmeScroll)).toBeLessThanOrEqual(1)
+
+    // file.md#section opens the file at that heading.
+    await link('Guide setup').click()
+    await expect(header()).toContainText('guide.md')
+    await expect.poll(() => offsetInPreview('#md-setup-steps')).toBeLessThan(40)
+    await back()
+
+    // Names with spaces, and non-Markdown files in their usual preview.
+    await link('Notes').click()
+    await expect(markdown().locator('h1')).toHaveText('My notes')
+    await back()
+    await link('App source').click()
+    await expect(drawer().locator('pre.file-preview-content')).toContainText('export const app = 1')
+    await back()
+
+    // "/" counts from the repository root, like on GitHub.
+    await link('Root guide').click()
+    await expect(markdown().locator('h1')).toHaveText('Root guide')
+    await back()
+
+    // A missing target says so; Back still works.
+    await link('Missing').click()
+    await expect(drawer().locator('.file-preview-missing')).toContainText('Not found')
+    await expect(drawer().locator('.file-preview-missing')).toContainText(join(tileDir, 'docs', 'missing.md'))
+    await back()
+
+    // A folder inside the tile's folder opens in the tree: highlighted, with its contents shown.
+    await link('Lib folder').click()
+    await expect(drawer().locator('.file-tree-row.selected .file-tree-name')).toHaveText('lib')
+    await expect(drawer().locator('.file-tree')).toContainText('util.ts')
+    await expect(header()).toContainText('lib')
+    await back()
+    await expect(markdown().locator('h1')).toHaveText('Web package')
+
+    // A folder outside it is listed in the preview area, one level at a time.
+    await link('Shared folder').click()
+    await expect(listing().locator('.folder-listing-path')).toHaveText(join(repo, 'shared'))
+    await expect(listing().locator('.file-tree-row .file-tree-name')).toHaveText(['..', 'sub', 'notes.txt'])
+    await listing().locator('.file-tree-row', { hasText: 'sub' }).click()
+    await expect(listing().locator('.folder-listing-path')).toHaveText(join(repo, 'shared', 'sub'))
+    await listing().locator('.file-tree-row', { hasText: 'deep.txt' }).click()
+    await expect(drawer().locator('pre.file-preview-content')).toContainText('deep file')
+    await back()
+    await expect(listing().locator('.folder-listing-path')).toHaveText(join(repo, 'shared', 'sub'))
+    await back()
+    await expect(listing().locator('.folder-listing-path')).toHaveText(join(repo, 'shared'))
+    await listing().locator('.folder-listing-up').click()
+    await expect(listing().locator('.folder-listing-path')).toHaveText(repo)
+    await listing().locator('.file-tree-row', { hasText: 'packages' }).click()
+    await expect(listing().locator('.folder-listing-path')).toHaveText(join(repo, 'packages'))
+    // Reaching the tile's folder from a list shows it in the tree again.
+    await listing().locator('.file-tree-row', { hasText: 'web' }).click()
+    await expect(listing()).toHaveCount(0)
+    await expect(drawer().locator('.file-tree')).toContainText('README.md')
+    await expect(header()).toContainText('files')
+    for (const folder of [join(repo, 'packages'), repo, join(repo, 'shared')]) {
+      await back()
+      await expect(listing().locator('.folder-listing-path')).toHaveText(folder)
+    }
+    await back()
+    await expect(markdown().locator('h1')).toHaveText('Web package')
+
+    // Web links go to the browser; other kinds of link do nothing; the window never navigates.
+    await link('Website').click()
+    await expect.poll(openedUrls).toEqual(['https://example.com/pitwall-e2e'])
+    await link('Mail').click()
+    await window.waitForTimeout(300)
+    expect(await openedUrls()).toEqual(['https://example.com/pitwall-e2e'])
+    await expect(header()).toContainText('README.md')
+    expect(window.url()).toBe(startUrl)
+
+    // Back from the first file returns to the tree.
+    await back()
+    await expect(drawer().locator('.file-panel-title')).toHaveText('Web')
+    await expect(drawer().locator('.file-tree')).toContainText('README.md')
   })
 })
 

@@ -101,6 +101,13 @@ export type ListDirResult =
   | { ok: true; entries: FileEntry[] }
   | { ok: false; message: string }
 
+/** What a path is, for following a link: a missing target is reported, not thrown. */
+export type PathStat =
+  | { kind: 'file' }
+  | { kind: 'directory' }
+  | { kind: 'missing' }
+  | { kind: 'error'; message: string }
+
 export type ReadFileResult =
   | { ok: true; content: string; truncated: boolean }
   | { ok: false; reason: 'binary' | 'error'; message?: string }
@@ -169,6 +176,8 @@ export const IPC = {
 
   fsListDir: 'fs:listDir',
   fsReadFile: 'fs:readFile',
+  fsStat: 'fs:stat',
+  fsRepoRoot: 'fs:repoRoot',
 
   ptyStart: 'pty:start',
   ptyInput: 'pty:input',
