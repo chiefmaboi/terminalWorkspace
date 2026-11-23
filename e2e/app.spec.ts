@@ -1267,6 +1267,75 @@ test.describe('markdown links in the file drawer', () => {
     await expect(drawer().locator('.file-panel-title')).toHaveText('Web')
     await expect(drawer().locator('.file-tree')).toContainText('README.md')
   })
+
+  test('the path at the top can be typed: folders, relative paths and files; the tile button goes back', async () => {
+    const { window } = ctx
+    const pathText = drawer().locator('.file-drawer-path')
+    const input = drawer().locator('.file-drawer-path-input')
+    const source = drawer().locator('.file-drawer-source')
+    const error = drawer().locator('.file-drawer-path-error')
+    const go = async (typed: string): Promise<void> => {
+      await pathText.click()
+      await input.fill(typed)
+      await input.press('Enter')
+    }
+
+    // Zoom the tile first: Esc in the path field must not also restore it.
+    await window.locator('.tile .tile-overlay').first().dispatchEvent('dblclick')
+    await expect(window.locator('.tile-zoomed')).toHaveCount(1)
+    if ((await drawer().count()) === 0) await window.keyboard.press('Control+Shift+E')
+    await expect(pathText).toHaveText(tileDir)
+
+    // Clicking shows the full path, selected, ready to type over.
+    await pathText.click()
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue(tileDir)
+    expect(await input.evaluate((el: HTMLInputElement) => el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0))).toBe(
+      tileDir
+    )
+    // Typed keys stay in the field: "?" doesn't open the shortcuts.
+    await input.press('End')
+    await input.pressSequentially('?')
+    await expect(input).toHaveValue(`${tileDir}?`)
+    await expect(window.locator('.modal-overlay')).toHaveCount(0)
+    await input.press('Escape')
+    await expect(input).toHaveCount(0)
+    await expect(pathText).toHaveText(tileDir)
+    await expect(window.locator('.tile-zoomed')).toHaveCount(1)
+
+    // A folder.
+    await go(join(repo, 'shared'))
+    await expect(pathText).toHaveText(join(repo, 'shared'))
+    await expect(source).toHaveText('typed')
+    await expect(drawer().locator('.file-tree')).toContainText('notes.txt')
+
+    // Relative to the folder shown.
+    await go('..')
+    await expect(pathText).toHaveText(repo)
+    await expect(drawer().locator('.file-tree')).toContainText('packages')
+
+    // A file (quoted, as Explorer's "Copy as path" gives it) opens in its folder.
+    await go(`"${join(tileDir, 'docs', 'guide.md')}"`)
+    await expect(pathText).toHaveText(join(tileDir, 'docs'))
+    await expect(markdown().locator('h1')).toHaveText('Guide')
+
+    // A path that doesn't exist: the field stays open and nothing changes.
+    await go('no-such-folder')
+    await expect(error).toHaveText(`Not found: ${join(tileDir, 'docs', 'no-such-folder')}`)
+    await expect(input).toBeFocused()
+    await expect(markdown().locator('h1')).toHaveText('Guide')
+    await input.press('Escape')
+    await expect(error).toHaveCount(0)
+    await expect(pathText).toHaveText(join(tileDir, 'docs'))
+
+    // The tile button goes back to the tile's own folder.
+    await drawer().locator('button[title^="Back to the tile"]').click()
+    await expect(pathText).toHaveText(tileDir)
+    await expect(source).not.toHaveText('typed')
+    await expect(drawer().locator('.file-tree')).toContainText('README.md')
+    await window.keyboard.press('Escape')
+    await expect(window.locator('.tile-zoomed')).toHaveCount(0)
+  })
 })
 
 test.describe('agent hooks', () => {

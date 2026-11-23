@@ -1434,6 +1434,7 @@ button {
   color: var(--text-dim);
 }
 
+/* The path is a button: click it to type a path. */
 .file-drawer-path {
   flex: 1;
   min-width: 0;
@@ -1442,6 +1443,37 @@ button {
   white-space: nowrap;
   direction: rtl;
   text-align: left;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: text;
+}
+
+.file-drawer-path:hover {
+  color: var(--text);
+}
+
+.file-drawer-path-input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--mono-accent);
+  border-radius: 3px;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.file-drawer-path-error {
+  padding: 4px 12px 6px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  color: var(--danger);
+  word-break: break-all;
 }
 
 .file-drawer-source {

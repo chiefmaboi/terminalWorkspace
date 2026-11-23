@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FileEntry, PaneCwd } from '../../../shared/types'
 import { useAppStore } from '../store/useAppStore'
-import { relativeSegments, samePath } from '../lib/markdownLinks'
+import { dirName, relativeSegments, resolvePath, samePath } from '../lib/markdownLinks'
 import FilePreviewContent, { fileName } from './FilePreviewContent'
 import FolderListing from './FolderListing'
 import FileIcon from './FileIcon'
@@ -25,11 +25,15 @@ type ViewBody =
   | { kind: 'tree'; reveal: string }
 type View = ViewBody & { id: number }
 
-const SOURCE_LABEL: Record<PaneCwd['source'], string> = {
+/** The drawer's folder: the tile's cwd, or a path typed into the bar at the top. */
+type DrawerRoot = { cwd: string; source: PaneCwd['source'] | 'typed' }
+
+const SOURCE_LABEL: Record<DrawerRoot['source'], string> = {
   agent: 'agent cwd',
   shell: 'shell cwd',
   reported: 'shell cwd',
-  start: 'start folder'
+  start: 'start folder',
+  typed: 'typed'
 }
 
 function TreeNode({
@@ -114,10 +118,16 @@ export default function FileDrawer({ onClose }: Props): React.JSX.Element {
     [workspaces, focusedTerminalId]
   )
 
-  const [root, setRoot] = useState<PaneCwd | null>(null)
+  const [root, setRoot] = useState<DrawerRoot | null>(null)
   const [dirs, setDirs] = useState<Record<string, DirState>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [stack, setStack] = useState<View[]>([])
+  // The path bar while it's being edited (null = showing the path), and why a typed path failed.
+  const [pathDraft, setPathDraft] = useState<string | null>(null)
+  const [pathError, setPathError] = useState<string | null>(null)
+  const pathEditToken = useRef(0)
+  // A typed file path: opened once the drawer has moved to its folder.
+  const pendingFileRef = useRef<string | null>(null)
   const resizingRef = useRef(false)
   const dirsRef = useRef(dirs)
   const nextViewId = useRef(1)
@@ -165,11 +175,62 @@ export default function FileDrawer({ onClose }: Props): React.JSX.Element {
 
   useEffect(() => {
     navGeneration.current++
+    pathEditToken.current++
     setDirs({})
     setExpanded(new Set())
-    setStack([])
+    setPathDraft(null)
+    setPathError(null)
+    const pendingFile = pendingFileRef.current
+    pendingFileRef.current = null
+    setStack(pendingFile ? [{ kind: 'file', path: pendingFile, fragment: null, id: nextViewId.current++ }] : [])
     if (rootPath) void loadDir(rootPath)
   }, [rootPath])
+
+  function startEditingPath(): void {
+    if (!root) return
+    pathEditToken.current++
+    setPathError(null)
+    setPathDraft(root.cwd)
+  }
+
+  function cancelEditingPath(): void {
+    pathEditToken.current++
+    setPathDraft(null)
+    setPathError(null)
+  }
+
+  /**
+   * Go to the typed path: a folder becomes the drawer's folder, a file opens in its folder. A
+   * relative path counts from the folder shown; a missing one leaves everything as it was.
+   */
+  async function submitPath(): Promise<void> {
+    if (!root || pathDraft === null) return
+    // Explorer's "Copy as path" wraps the path in quotes.
+    const typed = pathDraft.trim().replace(/^"(.*)"$/, '$1').trim()
+    if (!typed) {
+      cancelEditingPath()
+      return
+    }
+    const target = resolvePath(root.cwd, typed)
+    const token = ++pathEditToken.current
+    const stat = await window.api.statPath(target)
+    if (token !== pathEditToken.current) return
+    if (stat.kind === 'missing' || stat.kind === 'error') {
+      setPathError(stat.kind === 'missing' ? `Not found: ${target}` : stat.message)
+      return
+    }
+    setPathDraft(null)
+    setPathError(null)
+    const folder = stat.kind === 'directory' ? target : dirName(target)
+    if (rootPath && samePath(folder, rootPath)) {
+      // Already there: show the file, or the tree for the folder itself.
+      if (stat.kind === 'file') pushView({ kind: 'file', path: target, fragment: null }, true)
+      else setStack([])
+      return
+    }
+    if (stat.kind === 'file') pendingFileRef.current = target
+    setRoot({ cwd: folder, source: 'typed' })
+  }
 
   function toggleDir(path: string): void {
     setExpanded((prev) => {
@@ -322,7 +383,11 @@ export default function FileDrawer({ onClose }: Props): React.JSX.Element {
         )}
         <div className="file-panel-header-actions">
           {terminal && (
-            <button className="icon-button small" title="Re-read the tile's cwd" onClick={() => void resolveRoot()}>
+            <button
+              className="icon-button small"
+              title="Back to the tile's folder (re-reads its cwd)"
+              onClick={() => void resolveRoot()}
+            >
               ↻
             </button>
           )}
@@ -332,11 +397,41 @@ export default function FileDrawer({ onClose }: Props): React.JSX.Element {
         </div>
       </div>
       {root && (
-        <div className="file-drawer-root" title={root.cwd}>
-          <span className="file-drawer-path">{root.cwd}</span>
+        <div className="file-drawer-root">
+          {pathDraft !== null ? (
+            <input
+              className="file-drawer-path-input"
+              aria-label="Folder path"
+              value={pathDraft}
+              autoFocus
+              spellCheck={false}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => {
+                setPathDraft(e.target.value)
+                setPathError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void submitPath()
+                } else if (e.key === 'Escape') {
+                  // Stopped here so the same Esc doesn't also restore a zoomed tile.
+                  e.preventDefault()
+                  e.stopPropagation()
+                  cancelEditingPath()
+                }
+              }}
+              onBlur={cancelEditingPath}
+            />
+          ) : (
+            <button className="file-drawer-path" title={`${root.cwd}\nClick to type a path`} onClick={startEditingPath}>
+              {root.cwd}
+            </button>
+          )}
           <span className="file-drawer-source">{SOURCE_LABEL[root.source]}</span>
         </div>
       )}
+      {pathError && <div className="file-drawer-path-error">{pathError}</div>}
       {!terminal && <div className="file-tree-hint file-drawer-empty">Select a tile to browse its files.</div>}
       {terminal && !root && <div className="file-tree-hint file-drawer-empty">Resolving cwd…</div>}
       {showTree && (
