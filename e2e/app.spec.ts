@@ -146,6 +146,50 @@ test.describe('pty lifecycle', () => {
     await expect(screen).toContainText('process exited with code 8', { timeout: 15_000 })
   })
 
+  test('ended terminals leave no console host behind (exit, restart)', async () => {
+    test.skip(process.platform !== 'win32', 'ConPTY console hosts are Windows only')
+    const { window } = ctx
+    // Console hosts (OpenConsole.exe, or a system conhost.exe) and shells that are children of
+    // the app; every live terminal has one of each. (The app's own PID: Playwright's process()
+    // is a launcher above the real main process.)
+    const pid = await ctx.app.evaluate(() => process.pid)
+    const children = (): { conhosts: number; shells: number } => {
+      const out = execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          `$k = Get-CimInstance Win32_Process -Filter 'ParentProcessId=${pid}'; ` +
+            `"$(@($k | Where-Object { $_.Name -in 'conhost.exe','OpenConsole.exe' }).Count) $(@($k | Where-Object Name -eq 'powershell.exe').Count)"`
+        ],
+        { encoding: 'utf-8' }
+      )
+      const [conhosts, shells] = out.trim().split(' ').map(Number)
+      return { conhosts, shells }
+    }
+    // The Exiter tile above has exited on its own twice: neither left its console host.
+    await expect.poll(children, { timeout: 15_000 }).toEqual({ conhosts: 0, shells: 0 })
+
+    await addTerminal(window, 'Pty Workspace', 'Host', 'echo host-ready')
+    await expect(screenOf(window, 'Host')).toContainText('host-ready', { timeout: 15_000 })
+    await expect.poll(children, { timeout: 15_000 }).toEqual({ conhosts: 1, shells: 1 })
+
+    // Restart from the tile menu, twice: each stopped session's console host goes with it.
+    for (let i = 0; i < 2; i++) {
+      await tileOf(window, 'Host').locator('.tile-menu-button').click()
+      await window.locator('.tile-menu button', { hasText: 'Restart' }).click()
+      await expect(screenOf(window, 'Host')).toContainText('host-ready', { timeout: 15_000 })
+      await expect.poll(children, { timeout: 15_000 }).toEqual({ conhosts: 1, shells: 1 })
+    }
+
+    // A shell exiting on its own.
+    await tileOf(window, 'Host').locator('.tile-overlay').click()
+    await window.keyboard.type('exit')
+    await window.keyboard.press('Enter')
+    await expect(screenOf(window, 'Host')).toContainText('process exited with code 0', { timeout: 15_000 })
+    await expect.poll(children, { timeout: 15_000 }).toEqual({ conhosts: 0, shells: 0 })
+  })
+
   test("a real OSC 9 notification marks the tile waiting; the prompt's OSC 9;9 cwd reports never do", async () => {
     const { window } = ctx
     await addTerminal(window, 'Pty Workspace', 'Notifier', 'echo notifier-ready')

@@ -138,7 +138,13 @@ export class PtyManager {
       // Inherited env minus launcher/Pitwall-internal markers (see ptyEnv.ts), then this
       // terminal's own PITWALL_* variables, added after filtering so they can't be inherited.
       env: { ...buildPtyEnv(process.env), ...this.paneEnv(terminalId) },
-      useConpty: process.platform === 'win32'
+      useConpty: process.platform === 'win32',
+      // node-pty's bundled ConPTY (conpty.dll + OpenConsole.exe, as in Windows Terminal) instead
+      // of the system conhost.exe. node-pty releases this one at spawn, so it exits by itself
+      // once its last program ends. The system one is never closed after a shell exits or is
+      // killed (node-pty drops its handle to it first), so every ended terminal left a conhost
+      // running until Pitwall quit.
+      useConptyDll: process.platform === 'win32'
     })
 
     const session: Session = {
