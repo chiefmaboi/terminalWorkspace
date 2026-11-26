@@ -1,7 +1,7 @@
 {
   "name": "pitwall",
   "productName": "Pitwall",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Grid wall of live terminal sessions for Claude Code, Codex, Gemini CLI, and other terminal-based coding agents, with per-pane status. Forked from ittop by pottz91.",
   "main": "./out/main/index.js",
   "author": "MAB",
